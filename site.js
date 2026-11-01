@@ -325,7 +325,7 @@
   const drawerLogout = document.getElementById('drawerLogout');
   async function checkUser() {
     try {
-      const response = await fetch('/me', { credentials: 'include' });
+      const response = await window.ckApiFetch('/me');
       if (!response.ok) return null;
       return await response.json();
     } catch (error) {
@@ -336,7 +336,7 @@
   const userPromise = checkUser();
   const photoGrid = document.querySelector('.photo-grid');
   if (photoGrid) {
-      fetch('/gallery', { credentials: 'include' }).then((response) => response.ok ? response.json() : { images: [] }).then((data) => {
+      window.ckApiFetch('/gallery').then((response) => response.ok ? response.json() : { images: [] }).then((data) => {
         (data.images || []).forEach((image) => {
           const figure = document.createElement('figure');
           figure.className = 'photo-card';
@@ -359,7 +359,7 @@
         document.getElementById('photoForm')?.addEventListener('submit', async (event) => {
           event.preventDefault();
           const message = document.getElementById('photoMessage');
-          const response = await fetch('/gallery', { method: 'POST', credentials: 'include', body: new FormData(event.currentTarget) });
+          const response = await window.ckApiFetch('/gallery', { method: 'POST', body: new FormData(event.currentTarget) });
           const result = await response.json().catch(() => ({}));
           if (!response.ok) { message.textContent = result.message || 'A feltöltés nem sikerült.'; return; }
           window.location.reload();
@@ -384,7 +384,7 @@
       loggedInLinks.insertBefore(adminPageLink, drawerLogout);
     }
     if (drawerLogout) drawerLogout.addEventListener('click', async () => {
-      const response = await fetch('/logout', { method: 'POST', credentials: 'include' });
+      const response = await window.ckApiFetch('/logout', { method: 'POST' });
       if (response.ok) window.location.reload();
     });
   });
@@ -439,7 +439,7 @@
       poll.addEventListener('submit', async (event) => {
         event.preventDefault();
         const selected = poll.querySelector('input:checked');
-        const response = await fetch(`/posts/${post.id}/vote`, {
+        const response = await window.ckApiFetch(`/posts/${post.id}/vote`, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -456,7 +456,7 @@
       deleteButton.textContent = 'Poszt törlése';
       deleteButton.addEventListener('click', async () => {
         if (!window.confirm('Biztosan törlöd ezt a posztot?')) return;
-        const response = await fetch(`/posts/${post.id}`, { method: 'DELETE', credentials: 'include' });
+        const response = await window.ckApiFetch(`/posts/${post.id}`, { method: 'DELETE' });
         if (response.ok) loadPosts();
       });
       article.appendChild(deleteButton);
@@ -465,7 +465,7 @@
   }
   async function loadPosts() {
     try {
-      const response = await fetch('/posts', { credentials: 'include' });
+      const response = await window.ckApiFetch('/posts');
       const data = await response.json();
       if (!activeUser && data.currentUser) activeUser = { username: data.currentUser, roles: [] };
       postsList.replaceChildren();
@@ -527,7 +527,7 @@
         options: Array.from(document.querySelectorAll('.poll-option')).map((input) => input.value)
       }));
     }
-    const response = await fetch('/posts', { method: 'POST', credentials: 'include', body: formData });
+    const response = await window.ckApiFetch('/posts', { method: 'POST', body: formData });
     if (response.ok) {
       composer?.classList.remove('open');
       if (editor) editor.innerHTML = '';

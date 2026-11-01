@@ -135,6 +135,58 @@ Streamlit app, set `CK_API_BASE_URL` to an Express API URL that the Streamlit
 host can reach; the hosted app's `localhost` is not your personal computer.
 Do not expose a development database or API publicly without securing it.
 
+## Supabase Edge Function backend
+
+The repository includes a Supabase Edge Function implementation in
+[`supabase/functions/api/index.ts`](./supabase/functions/api/index.ts). It
+uses the existing `registered_users`, `roles`, `user_roles`, `posts`, and
+`gallery_images` tables; it does not create replacement tables.
+
+To deploy it:
+
+1. In Supabase, create a Storage bucket named `uploads` and make it public,
+   or update the function if the bucket should use signed URLs.
+2. Install and authenticate the Supabase CLI, then link the existing project:
+
+   ```powershell
+   supabase login
+   supabase link --project-ref <your-project-ref>
+   ```
+
+3. Add the function secrets. `SERVICE_KEY` is the project's server-side
+   secret key; never put it in frontend files:
+
+   ```powershell
+   supabase secrets set SERVICE_KEY=<supabase-secret-key>
+   supabase secrets set SESSION_SECRET=<long-random-value>
+   supabase secrets set CORS_ORIGINS=https://<account>.github.io
+   ```
+
+4. Deploy the function:
+
+   ```powershell
+   supabase functions deploy api
+   ```
+
+   The function URL is
+   `https://<project-ref>.supabase.co/functions/v1/api`.
+
+5. Edit [`api-config.js`](./api-config.js) and replace
+   `YOUR_PROJECT_REF` with the existing Supabase project reference. Do not
+   put `SERVICE_KEY` in this file.
+
+6. Test the API before publishing the frontend:
+
+   ```powershell
+   curl.exe https://<project-ref>.supabase.co/functions/v1/api/health
+   curl.exe https://<project-ref>.supabase.co/functions/v1/api/posts
+   ```
+
+The included [`supabase/config.toml`](./supabase/config.toml) disables the
+Supabase gateway's JWT requirement because this function authenticates users
+with its own `HttpOnly` signed cookie. Keep the function's route-level
+authorization intact.
+
 ### Streamlit Community Cloud
 
 Community Cloud hosts the Streamlit interface, not this Express API. Deploy

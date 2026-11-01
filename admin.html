@@ -26,6 +26,7 @@
     <tbody id="usersBody"><tr><td colspan="6">Betöltés...</td></tr></tbody>
   </table>
 
+<script src="api-config.js"></script>
 <script>
 (async function(){
   async function showNotice(msg, err) {
@@ -35,12 +36,12 @@
   }
   try {
 
-    const me = await fetch('/me', { credentials: 'include' });
+    const me = await window.ckApiFetch('/me');
     if (!me.ok) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="6">Nem vagy bejelentkezve</td></tr>'; return; }
     const md = await me.json();
     if (!md.isAllTimeAdmin) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="6">Nincs jogosultsága ennek az oldalnak az eléréséhez.</td></tr>'; return; }
 
-    const res = await fetch('/admin/users', { credentials: 'include' });
+    const res = await window.ckApiFetch('/admin/users');
     if (!res.ok) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="6">Hiba a felhasználók lekérésekor</td></tr>'; return; }
     const d = await res.json();
     const tbody = document.getElementById('usersBody'); tbody.innerHTML = '';
@@ -56,7 +57,7 @@
       emailInput.type = 'email'; emailInput.value = u.email || ''; emailInput.placeholder = 'email@example.com';
       const emailSave = document.createElement('button'); emailSave.textContent = 'Mentés';
       emailSave.addEventListener('click', async () => {
-        const r = await fetch('/admin/users/' + u.id + '/email', { method: 'POST', credentials: 'include', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ email: emailInput.value }) });
+        const r = await window.ckApiFetch('/admin/users/' + u.id + '/email', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ email: emailInput.value }) });
         const result = await r.json().catch(() => ({}));
         showNotice(r.ok ? 'E-mail cím mentve' : (result.message || 'Hiba'), !r.ok);
       });
@@ -71,7 +72,7 @@
       const saveBtn = document.createElement('button'); saveBtn.textContent = 'Mentés';
       saveBtn.addEventListener('click', async () => {
         const newStatus = sel.value || null;
-        const r = await fetch('/admin/users/' + u.id + '/status', { method: 'POST', credentials: 'include', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ status: newStatus }) });
+        const r = await window.ckApiFetch('/admin/users/' + u.id + '/status', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ status: newStatus }) });
         if (r.ok) { showNotice('Státusz frissítve'); } else { showNotice('Hiba a mentéskor', true); }
       });
       opsCell.appendChild(saveBtn);
@@ -81,20 +82,20 @@
       const addBtn = document.createElement('button'); addBtn.textContent = 'Hozzáad';
       addBtn.addEventListener('click', async () => {
         const role = roleInput.value.trim(); if (!role) { showNotice('Írjon be egy szerepet', true); return; }
-        const r = await fetch('/admin/users/' + u.id + '/roles', { method: 'POST', credentials: 'include', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ role, action: 'add' }) });
+        const r = await window.ckApiFetch('/admin/users/' + u.id + '/roles', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ role, action: 'add' }) });
         if (r.ok) { showNotice('Szerep hozzáadva'); location.reload(); } else showNotice('Hiba', true);
       });
       const remBtn = document.createElement('button'); remBtn.textContent = 'Eltávolít';
       remBtn.addEventListener('click', async () => {
         const role = roleInput.value.trim(); if (!role) { showNotice('Írjon be egy szerepet', true); return; }
-        const r = await fetch('/admin/users/' + u.id + '/roles', { method: 'POST', credentials: 'include', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ role, action: 'remove' }) });
+        const r = await window.ckApiFetch('/admin/users/' + u.id + '/roles', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ role, action: 'remove' }) });
         if (r.ok) { showNotice('Szerep eltávolítva'); location.reload(); } else showNotice('Hiba', true);
       });
       opsCell.appendChild(roleInput); opsCell.appendChild(addBtn); opsCell.appendChild(remBtn);
       const resetBtn = document.createElement('button'); resetBtn.textContent = 'Jelszó visszaállítása';
       resetBtn.addEventListener('click', async () => {
         if (!window.confirm(`Biztosan visszaállítod ${u.username} jelszavát?`)) return;
-        const r = await fetch('/admin/users/' + u.id + '/reset-password', { method: 'POST', credentials: 'include' });
+        const r = await window.ckApiFetch('/admin/users/' + u.id + '/reset-password', { method: 'POST' });
         const result = await r.json().catch(() => ({}));
         if (!r.ok) { showNotice(result.message || 'Hiba a jelszó visszaállításakor', true); return; }
         if (result.emailSent) showNotice(`Jelszó visszaállítva és elküldve erre: ${u.email}`);
@@ -108,7 +109,7 @@
       tbody.appendChild(tr);
     });
     document.getElementById('adminLogout').addEventListener('click', async () => {
-      const response = await fetch('/logout', { method: 'POST', credentials: 'include' });
+      const response = await window.ckApiFetch('/logout', { method: 'POST' });
       if (response.ok) window.location.href = '/login.html';
       else showNotice('A kijelentkezés nem sikerült.', true);
     });

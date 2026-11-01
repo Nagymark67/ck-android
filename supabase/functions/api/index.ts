@@ -1,0 +1,366 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import express from "npm:express@4.18.2";
+import bcrypt from "npm:bcryptjs@2.4.3";
+import multer from "npm:multer@1.4.5-lts.1";
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const app = express();
+app.use(express.json({ limit: "1mb" }));
+const multipart = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+const supabaseUrl = Deno.env.get("SUPABASE_URL");
+const serviceKey = Deno.env.get("SERVICE_KEY");
+const sessionSecret = Deno.env.get("SESSION_SECRET");
+if (!supabaseUrl || !serviceKey || !sessionSecret) {
+  throw new Error("SUPABASE_URL, SERVICE_KEY and SESSION_SECRET are required.");
+}
+
+const db = createClient(supabaseUrl, serviceKey);
+const cookieName = "ck_session";
+const allowedOrigins = (Deno.env.get("CORS_ORIGINS") || "*").split(",").map((origin) => origin.trim()).filter(Boolean);
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && (allowedOrigins.includes("*") || allowedOrigins.includes(origin))) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Headers", "authorization, apikey, content-type");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
+const text = (value: unknown) => typeof value === "string" ? value : "";
+type UploadedFile = { originalname: string; mimetype: string; buffer: Uint8Array };
+type MultipartRequest = express.Request & { files?: UploadedFile[]; file?: UploadedFile };
+const parseId = (value: string) => {
+  const id = Number.parseInt(value, 10);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
+
+const encode = (value: string) => btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const decode = (value: string) => atob(value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4));
+const key = async () => crypto.subtle.importKey("raw", new TextEncoder().encode(sessionSecret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+
+async function createToken(payload: Record<string, unknown>) {
+  const body = encode(JSON.stringify({ ...payload, exp: Date.now() + 24 * 60 * 60 * 1000 }));
+  const signature = encode(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign("HMAC", await key(), new TextEncoder().encode(body)))));
+  return `${body}.${signature}`;
+}
+
+async function readToken(token: string | undefined) {
+  if (!token) return null;
+  const [body, signature] = token.split(".");
+  if (!body || !signature) return null;
+  try {
+    const valid = await crypto.subtle.verify("HMAC", await key(), Uint8Array.from(decode(signature), (character) => character.charCodeAt(0)), new TextEncoder().encode(body));
+    if (!valid) return null;
+    const payload = JSON.parse(decode(body));
+    return payload.exp > Date.now() ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+function cookieValue(req: express.Request) {
+  const cookies = text(req.headers.cookie).split(";").map((part) => part.trim());
+  const entry = cookies.find((part) => part.startsWith(`${cookieName}=`));
+  return entry ? decodeURIComponent(entry.slice(cookieName.length + 1)) : undefined;
+}
+
+async function currentUser(req: express.Request) {
+  return readToken(cookieValue(req));
+}
+
+function setSession(res: express.Response, token: string) {
+  res.setHeader("Set-Cookie", `${cookieName}=${encodeURIComponent(token)}; Max-Age=86400; Path=/; HttpOnly; Secure; SameSite=None`);
+}
+
+function clearSession(res: express.Response) {
+  res.setHeader("Set-Cookie", `${cookieName}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=None`);
+}
+
+async function rolesFor(username: string) {
+  const { data, error } = await db
+    .from("registered_users")
+    .select("status, user_roles(roles(role_name))")
+    .eq("username", username)
+    .maybeSingle();
+  if (error) throw error;
+  const explicit = (data?.user_roles || []).map((entry: { roles?: { role_name?: string } | null }) => entry.roles?.role_name).filter(Boolean) as string[];
+  const derived = data?.status === "Cantus Praeses" ? ["cantus_praeses"] : data?.status === "Jegyző" ? ["jegyzo"] : data?.status === "Alapító" ? ["alapito"] : [];
+  return { roles: [...new Set([...explicit.filter((role) => role !== "all-time admin"), ...derived])], isAllTimeAdmin: explicit.includes("all-time admin") };
+}
+
+async function requireUser(req: express.Request, res: express.Response) {
+  const session = await currentUser(req);
+  if (!session?.username) {
+    res.status(401).json({ message: "Nincs bejelentkezve" });
+    return null;
+  }
+  return String(session.username);
+}
+
+async function hasRole(username: string, required: string[]) {
+  const { isAllTimeAdmin, roles } = await rolesFor(username);
+  return isAllTimeAdmin || required.some((role) => roles.includes(role));
+}
+
+function sanitizeContent(input: string) {
+  return input.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, "")
+    .replace(/<(iframe|object|embed|form)[^>]*>[\s\S]*?<\/\1>/gi, "")
+    .replace(/on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s(href|src)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, "");
+}
+
+app.get("/health", (_req, res) => res.json({ ok: true }));
+
+app.post("/register", async (req, res) => {
+  const username = text(req.body?.username).trim();
+  const password = text(req.body?.password);
+  const status = text(req.body?.status);
+  const email = text(req.body?.email).trim().toLowerCase() || null;
+  if (!username || !password || !status) return res.status(400).json({ message: "Hiányzó adatok!" });
+  if (status === "Alapító" && !["Simon Gábor", "Barak Antal", "Bodnár Róbert", "Fodor Ferenc", "Czakó Gábor"].includes(username)) {
+    return res.status(403).json({ message: "Csak az Alapítóként megadott személyek választhatják ezt a státuszt." });
+  }
+  try {
+    const { data: existing } = await db.from("registered_users").select("id").eq("username", username).maybeSingle();
+    if (existing) return res.status(409).json({ message: "A felhasználónév már foglalt!" });
+    if (["Cantus Praeses", "Jegyző"].includes(status)) {
+      const { data: taken } = await db.from("registered_users").select("id").eq("status", status).limit(1);
+      if (taken?.length) return res.status(403).json({ message: `${status} pozíciót már betöltik.` });
+    }
+    const { error } = await db.from("registered_users").insert({ username, password: await bcrypt.hash(password, 10), status, email });
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Register error", error);
+    res.status(500).json({ message: "Adatbázis hiba!" });
+  }
+});
+
+app.post("/login", async (req, res) => {
+  const username = text(req.body?.username).trim();
+  const password = text(req.body?.password);
+  try {
+    const { data: user, error } = await db.from("registered_users").select("username,password,password_reset_required").eq("username", username).maybeSingle();
+    if (error) throw error;
+    if (!user || !(await bcrypt.compare(password, user.password))) return res.status(401).json({ success: false, message: "Hibás felhasználónév vagy jelszó!" });
+    if (user.password_reset_required) {
+      setSession(res, await createToken({ resetUsername: username }));
+      return res.json({ success: true, requiresPasswordChange: true, username });
+    }
+    setSession(res, await createToken({ username }));
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Login error", error);
+    res.status(500).json({ message: "Adatbázis hiba!" });
+  }
+});
+
+app.post("/password-reset/complete", async (req, res) => {
+  const session = await currentUser(req);
+  const username = text(session?.resetUsername);
+  const password = text(req.body?.password);
+  if (!username) return res.status(401).json({ message: "A jelszócsere munkamenete lejárt." });
+  if (password.length < 8) return res.status(400).json({ message: "Az új jelszónak legalább 8 karakteresnek kell lennie." });
+  const { error } = await db.from("registered_users").update({ password: await bcrypt.hash(password, 10), password_reset_required: false }).eq("username", username);
+  if (error) return res.status(500).json({ message: "A jelszó mentése nem sikerült." });
+  setSession(res, await createToken({ username }));
+  res.json({ success: true });
+});
+
+app.post("/logout", (_req, res) => {
+  clearSession(res);
+  res.json({ success: true });
+});
+
+app.get("/me", async (req, res) => {
+  const username = await requireUser(req, res);
+  if (!username) return;
+  try {
+    const result = await rolesFor(username);
+    res.json({ username, ...result });
+  } catch (error) {
+    console.error("Me error", error);
+    res.status(500).json({ message: "A felhasználói adatok lekérése nem sikerült." });
+  }
+});
+
+app.get("/reserved-statuses", async (_req, res) => {
+  const { data, error } = await db.from("registered_users").select("status").in("status", ["Cantus Praeses", "Jegyző"]);
+  if (error) return res.status(500).json({ taken: [] });
+  res.json({ taken: [...new Set((data || []).map((row) => row.status).filter(Boolean))] });
+});
+
+app.get("/posts", async (req, res) => {
+  try {
+    const session = await currentUser(req);
+    const visibility = session?.username ? ["mindenki", "tagok_es_tanitvanyok", "csak_tagok"] : ["mindenki"];
+    const { data, error } = await db.from("posts").select("id,author_username,content,visibility,attachments,poll,created_at").in("visibility", visibility).order("created_at", { ascending: false }).limit(50);
+    if (error) throw error;
+    res.json({ posts: data || [], currentUser: session?.username || null });
+  } catch (error) {
+    console.error("Posts error", error);
+    res.status(500).json({ posts: [] });
+  }
+});
+
+async function uploadFile(file: { originalname: string; mimetype: string; buffer: Uint8Array }, username: string) {
+  const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "");
+  const path = `${username}/${crypto.randomUUID()}-${safeName || "upload"}`;
+  const { error } = await db.storage.from("uploads").upload(path, file.buffer, { contentType: file.mimetype, upsert: false });
+  if (error) throw error;
+  return `${supabaseUrl}/storage/v1/object/public/uploads/${path}`;
+}
+
+app.post("/posts", multipart.array("attachments", 5), async (req, res) => {
+  const username = await requireUser(req, res);
+  if (!username) return;
+  if (!(await hasRole(username, ["cantus_praeses", "jegyzo"]))) return res.status(403).json({ message: "Nincs jogosultsága posztolni" });
+  try {
+    const content = sanitizeContent(text(req.body?.content));
+    const visibility = text(req.body?.visibility) || "mindenki";
+    let poll = null;
+    const pollValue = req.body?.poll;
+    if (pollValue) {
+      const submitted = JSON.parse(text(pollValue));
+      const question = text(submitted.question).trim().slice(0, 300);
+      const options = Array.isArray(submitted.options) ? submitted.options.map((option: unknown) => text(option).trim().slice(0, 120)).filter(Boolean).slice(0, 6) : [];
+      if (question && options.length >= 2) poll = { question, options: options.map((option: string) => ({ text: option, votes: 0 })) };
+    }
+    const multipartRequest = req as MultipartRequest;
+    const files = Array.isArray(multipartRequest.files) ? multipartRequest.files : [];
+    if (!content.trim() && !poll && files.length === 0) return res.status(400).json({ message: "Adj meg tartalmat, képet vagy szavazást" });
+    const attachments = await Promise.all(files.map((file) => uploadFile(file, username)));
+    const { error } = await db.from("posts").insert({ author_username: username, content, visibility, attachments, poll });
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Create post error", error);
+    res.status(500).json({ message: "Hiba a poszt létrehozásakor" });
+  }
+});
+
+app.post("/posts/:id/vote", async (req, res) => {
+  if (!await requireUser(req, res)) return;
+  const id = parseId(req.params.id);
+  const optionIndex = Number.parseInt(req.body?.optionIndex, 10);
+  if (!id || !Number.isInteger(optionIndex)) return res.status(400).json({ message: "Érvénytelen szavazat" });
+  const { data: post, error } = await db.from("posts").select("poll").eq("id", id).maybeSingle();
+  if (error || !post) return res.status(404).json({ message: "A poszt nem található" });
+  const poll = post.poll;
+  if (!poll?.options?.[optionIndex]) return res.status(400).json({ message: "A poszt nem tartalmaz szavazást" });
+  poll.options[optionIndex].votes = Number(poll.options[optionIndex].votes || 0) + 1;
+  const result = await db.from("posts").update({ poll }).eq("id", id);
+  if (result.error) return res.status(500).json({ message: "Hiba a szavazás mentésekor" });
+  res.json({ success: true, poll });
+});
+
+app.delete("/posts/:id", async (req, res) => {
+  const username = await requireUser(req, res);
+  if (!username) return;
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ message: "Érvénytelen azonosító" });
+  const { data: post, error } = await db.from("posts").select("author_username").eq("id", id).maybeSingle();
+  if (error || !post) return res.status(404).json({ message: "A poszt nem található" });
+  if (post.author_username !== username && !await hasRole(username, ["cantus_praeses", "jegyzo"])) return res.status(403).json({ message: "Nincs jogosultsága törölni" });
+  const result = await db.from("posts").delete().eq("id", id);
+  if (result.error) return res.status(500).json({ message: "Hiba a poszt törlésekor" });
+  res.json({ success: true });
+});
+
+app.get("/gallery", async (_req, res) => {
+  const { data, error } = await db.from("gallery_images").select("id,image_url,alt_text,created_at").order("created_at", { ascending: true });
+  if (error) return res.status(500).json({ message: "A galéria betöltése nem sikerült" });
+  res.json({ images: data || [] });
+});
+
+app.post("/gallery", multipart.single("image"), async (req, res) => {
+  const username = await requireUser(req, res);
+  if (!username) return;
+  if (!(await hasRole(username, ["cantus_praeses", "jegyzo"]))) return res.status(403).json({ message: "Nincs jogosultsága képet feltölteni" });
+  try {
+    const file = (req as MultipartRequest).file;
+    if (!file) return res.status(400).json({ message: "Kép feltöltése kötelező" });
+    if (!/^image\/(jpeg|png|gif|webp)$/i.test(file.mimetype)) return res.status(400).json({ message: "Érvénytelen képformátum" });
+    const imageUrl = await uploadFile(file, username);
+    const altText = text(req.body?.altText).trim().slice(0, 200) || "A Cantusok Köre közös fotója";
+    const { error } = await db.from("gallery_images").insert({ image_url: imageUrl, alt_text: altText, uploaded_by: username });
+    if (error) throw error;
+    res.json({ success: true, image: { image_url: imageUrl, alt_text: altText } });
+  } catch (error) {
+    console.error("Gallery upload error", error);
+    res.status(500).json({ message: "A kép feltöltése nem sikerült" });
+  }
+});
+
+app.get("/online-users", (_req, res) => res.json({ users: [] }));
+app.post("/online-ping", async (req, res) => { if (!await requireUser(req, res)) return; res.json({ success: true }); });
+app.post("/online-leave", async (req, res) => { if (!await requireUser(req, res)) return; res.json({ success: true }); });
+
+async function requireAdmin(req: express.Request, res: express.Response) {
+  const username = await requireUser(req, res);
+  if (!username) return null;
+  if (!await hasRole(username, ["all-time admin"])) {
+    res.status(403).json({ message: "Nincs jogosultsága" });
+    return null;
+  }
+  return username;
+}
+
+app.get("/admin/users", async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const { data, error } = await db.from("registered_users").select("id,username,email,status,user_roles(roles(role_name))").order("id");
+  if (error) return res.status(500).json({ message: "DB error" });
+  const users = (data || []).map((user) => ({ id: user.id, username: user.username, email: user.email, status: user.status, roles: (user.user_roles || []).map((entry: { roles?: { role_name?: string } | null }) => entry.roles?.role_name).filter(Boolean) }));
+  res.json({ users });
+});
+
+app.post("/admin/users/:id/email", async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const id = parseId(req.params.id);
+  const email = text(req.body?.email).trim().toLowerCase();
+  if (!id || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) return res.status(400).json({ message: "Érvénytelen adat." });
+  const { error } = await db.from("registered_users").update({ email: email || null }).eq("id", id);
+  if (error) return res.status(500).json({ message: "Az e-mail cím mentése nem sikerült." });
+  res.json({ success: true });
+});
+
+app.post("/admin/users/:id/status", async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ message: "Érvénytelen id" });
+  const { error } = await db.from("registered_users").update({ status: req.body?.status || null }).eq("id", id);
+  if (error) return res.status(500).json({ message: "DB error" });
+  res.json({ success: true });
+});
+
+app.post("/admin/users/:id/roles", async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const id = parseId(req.params.id);
+  const role = text(req.body?.role).trim();
+  const action = text(req.body?.action);
+  if (!id || !role || !["add", "remove"].includes(action)) return res.status(400).json({ message: "Hiányzó adatok" });
+  let { data: roleRow, error } = await db.from("roles").select("id").eq("role_name", role).maybeSingle();
+  if (error) return res.status(500).json({ message: "DB error" });
+  if (!roleRow && action === "add") {
+    const inserted = await db.from("roles").insert({ role_name: role }).select("id").single();
+    if (inserted.error) return res.status(500).json({ message: "DB error" });
+    roleRow = inserted.data;
+  }
+  if (!roleRow) return res.status(404).json({ message: "A szerep nem található" });
+  if (action === "add") {
+    const result = await db.from("user_roles").upsert({ user_id: id, role_id: roleRow.id }, { onConflict: "user_id,role_id" });
+    if (result.error) return res.status(500).json({ message: "DB error" });
+  } else {
+    const result = await db.from("user_roles").delete().eq("user_id", id).eq("role_id", roleRow.id);
+    if (result.error) return res.status(500).json({ message: "DB error" });
+  }
+  res.json({ success: true });
+});
+
+app.listen(8000);
