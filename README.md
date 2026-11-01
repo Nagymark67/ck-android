@@ -153,11 +153,11 @@ To deploy it:
    supabase link --project-ref <your-project-ref>
    ```
 
-3. Add the function secrets. `SERVICE_KEY` is the project's server-side
+3. Add the function secrets. `SECRET_KEY` is the project's server-side
    secret key; never put it in frontend files:
 
    ```powershell
-   supabase secrets set SERVICE_KEY=<supabase-secret-key>
+   supabase secrets set SECRET_KEY=<supabase-secret-key>
    supabase secrets set SESSION_SECRET=<long-random-value>
    supabase secrets set CORS_ORIGINS=https://<account>.github.io
    ```
@@ -173,7 +173,7 @@ To deploy it:
 
 5. Edit [`api-config.js`](./api-config.js) and replace
    `YOUR_PROJECT_REF` with the existing Supabase project reference. Do not
-   put `SERVICE_KEY` in this file.
+   put `SECRET_KEY` in this file.
 
 6. Test the API before publishing the frontend:
 
