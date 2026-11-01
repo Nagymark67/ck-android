@@ -153,10 +153,12 @@ To deploy it:
    supabase link --project-ref <your-project-ref>
    ```
 
-3. Add the function secrets. `SECRET_KEY` is the project's server-side
-   secret key; never put it in frontend files:
+3. Add the function secrets. `PROJECT_URL` is your Supabase project URL
+   (for example `https://abc123.supabase.co`) and `SECRET_KEY` is the
+   project's server-side secret key; never put them in frontend files:
 
    ```powershell
+   supabase secrets set PROJECT_URL=https://<project-ref>.supabase.co
    supabase secrets set SECRET_KEY=<supabase-secret-key>
    supabase secrets set SESSION_SECRET=<long-random-value>
    supabase secrets set CORS_ORIGINS=https://<account>.github.io

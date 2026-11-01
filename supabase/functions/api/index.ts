@@ -8,11 +8,11 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 const multipart = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL");
+const supabaseUrl = Deno.env.get("PROJECT_URL") || Deno.env.get("SUPABASE_URL");
 const serviceKey = Deno.env.get("SECRET_KEY") || Deno.env.get("SERVICE_KEY");
 const sessionSecret = Deno.env.get("SESSION_SECRET");
 if (!supabaseUrl || !serviceKey || !sessionSecret) {
-  throw new Error("SUPABASE_URL, SECRET_KEY (or SERVICE_KEY) and SESSION_SECRET are required.");
+  throw new Error("PROJECT_URL (or SUPABASE_URL), SECRET_KEY (or SERVICE_KEY) and SESSION_SECRET are required.");
 }
 
 const db = createClient(supabaseUrl, serviceKey);
