@@ -7,6 +7,7 @@ const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const sessionSecret = process.env.SESSION_SECRET;
 const smtpTransport = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
   ? nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -56,6 +57,10 @@ const galleryUpload = multer({
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
   console.error('DATABASE_URL is required. Set it to your PostgreSQL connection string.');
+  process.exit(1);
+}
+if (!sessionSecret) {
+  console.error('SESSION_SECRET is required. Set it to a strong random value.');
   process.exit(1);
 }
 
@@ -199,7 +204,7 @@ const onlineUsersLastSeen = {};
 
 app.use(bodyParser.json());
 app.use(session({
-  secret: 'nagyon-titkos',
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -658,8 +663,11 @@ async function ensureRolesAndAdminUser() {
     }
 
     
-    const adminUsername = 'Nagy Márk a. Burschazam';
-    const adminPlainPassword = 'FErrari83493365.'; 
+    const adminUsername = process.env.ADMIN_USERNAME;
+    const adminPlainPassword = process.env.ADMIN_PASSWORD;
+    if (!adminUsername || !adminPlainPassword) {
+      throw new Error('ADMIN_USERNAME and ADMIN_PASSWORD are required to bootstrap the all-time admin user.');
+    }
 
     
     const [urows] = await query('SELECT id FROM registered_users WHERE username = ?', [adminUsername]);

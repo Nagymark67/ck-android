@@ -16,6 +16,23 @@ Supabase, Neon, and Render PostgreSQL provide connection URLs suitable for
 this configuration. Keep `DATABASE_URL` in the hosting provider's secret
 environment variables; never commit it.
 
+The initial all-time admin is also configured through environment variables.
+Set `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and a strong random `SESSION_SECRET`
+before starting the server. If the configured admin username already exists,
+startup preserves that account and only ensures its all-time-admin role.
+
+For Render, add these values under **Environment → Environment Variables** for
+the service; do not commit a `.env` file or put real credentials in
+`.env.example`:
+
+```text
+DATABASE_URL=<Render PostgreSQL connection string>
+ADMIN_USERNAME=<your admin username>
+ADMIN_PASSWORD=<a new strong admin password>
+SESSION_SECRET=<a long random session secret>
+NODE_ENV=production
+```
+
 ## Funkciók
 
 ### Backend (server.js)
