@@ -189,6 +189,22 @@ Supabase gateway's JWT requirement because this function authenticates users
 with its own `HttpOnly` signed cookie. Keep the function's route-level
 authorization intact.
 
+### Gallery approvals and multiple uploads
+
+Before deploying the updated function, run the migration in
+[`supabase/migrations/20261101220000_gallery_approval.sql`](./supabase/migrations/20261101220000_gallery_approval.sql)
+in the existing Supabase SQL Editor:
+
+```sql
+ALTER TABLE gallery_images
+  ADD COLUMN IF NOT EXISTS approved BOOLEAN NOT NULL DEFAULT TRUE;
+```
+
+Existing gallery rows remain approved. Users with the `Tag` status or role may
+upload up to 10 gallery images at once; those images remain hidden until an
+all-time admin approves them from `admin.html`. Post uploads remain available
+to the existing content roles and support up to 5 attachments.
+
 ### Streamlit Community Cloud
 
 Community Cloud hosts the Streamlit interface, not this Express API. Deploy

@@ -51,6 +51,7 @@
   const songName = 'Daltanítás';
   const songLocation = 'Liget Söröző';
   const canManageContent = (user) => user && (user.isAllTimeAdmin || (user.roles || []).some((role) => ['cantus_praeses', 'jegyzo'].includes(role)));
+  const canUploadGallery = (user) => user && (user.isAllTimeAdmin || (user.roles || []).some((role) => ['cantus_praeses', 'jegyzo', 'tag'].includes(role)));
   let canManageEvents = false;
   let rerenderEvents = null;
   const nextSong = (from = new Date()) => {
@@ -349,7 +350,7 @@
       }).catch((error) => console.warn('Could not load gallery images', error));
       userPromise.then((user) => {
         const addPhotoButton = document.getElementById('addPhotoButton');
-        if (!addPhotoButton || !canManageContent(user)) return;
+        if (!addPhotoButton || !canUploadGallery(user)) return;
         addPhotoButton.hidden = false;
         const photoModal = document.getElementById('photoModal');
         const closePhotoModal = () => { if (photoModal) photoModal.hidden = true; };

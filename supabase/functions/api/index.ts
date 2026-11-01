@@ -92,7 +92,7 @@ async function rolesFor(username: string) {
     .maybeSingle();
   if (error) throw error;
   const explicit = (data?.user_roles || []).map((entry: { roles?: { role_name?: string } | null }) => entry.roles?.role_name).filter(Boolean) as string[];
-  const derived = data?.status === "Cantus Praeses" ? ["cantus_praeses"] : data?.status === "Jegyző" ? ["jegyzo"] : data?.status === "Alapító" ? ["alapito"] : [];
+  const derived = data?.status === "Cantus Praeses" ? ["cantus_praeses"] : data?.status === "Jegyző" ? ["jegyzo"] : data?.status === "Alapító" ? ["alapito"] : data?.status === "Tag" ? ["tag"] : [];
   return { roles: [...new Set([...explicit.filter((role) => role !== "all-time admin"), ...derived])], isAllTimeAdmin: explicit.includes("all-time admin") };
 }
 
@@ -277,24 +277,25 @@ app.delete("/posts/:id", async (req, res) => {
 });
 
 app.get("/gallery", async (_req, res) => {
-  const { data, error } = await db.from("gallery_images").select("id,image_url,alt_text,created_at").order("created_at", { ascending: true });
+  const { data, error } = await db.from("gallery_images").select("id,image_url,alt_text,created_at").eq("approved", true).order("created_at", { ascending: true });
   if (error) return res.status(500).json({ message: "A galéria betöltése nem sikerült" });
   res.json({ images: data || [] });
 });
 
-app.post("/gallery", multipart.single("image"), async (req, res) => {
+app.post("/gallery", multipart.array("image", 10), async (req, res) => {
   const username = await requireUser(req, res);
   if (!username) return;
-  if (!(await hasRole(username, ["cantus_praeses", "jegyzo"]))) return res.status(403).json({ message: "Nincs jogosultsága képet feltölteni" });
+  const canApprove = await hasRole(username, ["cantus_praeses", "jegyzo"]);
+  if (!canApprove && !(await hasRole(username, ["tag"]))) return res.status(403).json({ message: "Nincs jogosultsága képet feltölteni" });
   try {
-    const file = (req as MultipartRequest).file;
-    if (!file) return res.status(400).json({ message: "Kép feltöltése kötelező" });
-    if (!/^image\/(jpeg|png|gif|webp)$/i.test(file.mimetype)) return res.status(400).json({ message: "Érvénytelen képformátum" });
-    const imageUrl = await uploadFile(file, username);
+    const files = ((req as MultipartRequest).files || []).slice(0, 10);
+    if (files.length === 0) return res.status(400).json({ message: "Kép feltöltése kötelező" });
+    if (files.some((file) => !/^image\/(jpeg|png|gif|webp)$/i.test(file.mimetype))) return res.status(400).json({ message: "Érvénytelen képformátum" });
     const altText = text(req.body?.altText).trim().slice(0, 200) || "A Cantusok Köre közös fotója";
-    const { error } = await db.from("gallery_images").insert({ image_url: imageUrl, alt_text: altText, uploaded_by: username });
+    const imageUrls = await Promise.all(files.map((file) => uploadFile(file, username)));
+    const { data, error } = await db.from("gallery_images").insert(imageUrls.map((image_url) => ({ image_url, alt_text: altText, uploaded_by: username, approved: canApprove }))).select("id,image_url,alt_text,created_at,approved");
     if (error) throw error;
-    res.json({ success: true, image: { image_url: imageUrl, alt_text: altText } });
+    res.json({ success: true, images: data || [], pendingApproval: !canApprove });
   } catch (error) {
     console.error("Gallery upload error", error);
     res.status(500).json({ message: "A kép feltöltése nem sikerült" });
@@ -321,6 +322,31 @@ app.get("/admin/users", async (req, res) => {
   if (error) return res.status(500).json({ message: "DB error" });
   const users = (data || []).map((user) => ({ id: user.id, username: user.username, email: user.email, status: user.status, roles: (user.user_roles || []).map((entry: { roles?: { role_name?: string } | null }) => entry.roles?.role_name).filter(Boolean) }));
   res.json({ users });
+});
+
+app.get("/admin/gallery/pending", async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const { data, error } = await db.from("gallery_images").select("id,image_url,alt_text,uploaded_by,created_at").eq("approved", false).order("created_at", { ascending: true });
+  if (error) return res.status(500).json({ message: "A függő képek lekérése nem sikerült." });
+  res.json({ images: data || [] });
+});
+
+app.post("/admin/gallery/:id/approve", async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ message: "Érvénytelen azonosító" });
+  const { error } = await db.from("gallery_images").update({ approved: true }).eq("id", id);
+  if (error) return res.status(500).json({ message: "A kép jóváhagyása nem sikerült." });
+  res.json({ success: true });
+});
+
+app.delete("/admin/gallery/:id", async (req, res) => {
+  if (!await requireAdmin(req, res)) return;
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ message: "Érvénytelen azonosító" });
+  const { error } = await db.from("gallery_images").delete().eq("id", id);
+  if (error) return res.status(500).json({ message: "A kép elutasítása nem sikerült." });
+  res.json({ success: true });
 });
 
 app.post("/admin/users/:id/email", async (req, res) => {
