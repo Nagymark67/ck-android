@@ -164,6 +164,20 @@ To deploy it:
    supabase secrets set CORS_ORIGINS=https://<account>.github.io
    ```
 
+   For admin password reset e-mails, also configure the SMTP provider:
+
+   ```powershell
+   supabase secrets set SMTP_HOST=<smtp-host>
+   supabase secrets set SMTP_PORT=587
+   supabase secrets set SMTP_SECURE=false
+   supabase secrets set SMTP_USER=<smtp-username>
+   supabase secrets set SMTP_PASS=<smtp-password-or-app-password>
+   supabase secrets set SMTP_FROM=<verified-sender-address>
+   ```
+
+   For Gmail, use an app password rather than the normal account password.
+   The sender address must be accepted by the SMTP provider.
+
 4. Deploy the function:
 
    ```powershell

@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import express from "npm:express@4.18.2";
 import bcrypt from "npm:bcryptjs@2.4.3";
 import multer from "npm:multer@1.4.5-lts.1";
+import nodemailer from "npm:nodemailer@7.0.9";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const app = express();
@@ -11,11 +12,25 @@ const multipart = multer({ storage: multer.memoryStorage(), limits: { fileSize: 
 const supabaseUrl = Deno.env.get("PROJECT_URL") || Deno.env.get("SUPABASE_URL");
 const serviceKey = Deno.env.get("SECRET_KEY") || Deno.env.get("SERVICE_KEY");
 const sessionSecret = Deno.env.get("SESSION_SECRET");
+const smtpHost = Deno.env.get("SMTP_HOST");
+const smtpUser = Deno.env.get("SMTP_USER");
+const smtpPass = Deno.env.get("SMTP_PASS");
+const smtpPort = Number(Deno.env.get("SMTP_PORT") || 587);
+const smtpSecure = Deno.env.get("SMTP_SECURE") === "true";
+const smtpFrom = Deno.env.get("SMTP_FROM") || smtpUser;
 if (!supabaseUrl || !serviceKey || !sessionSecret) {
   throw new Error("PROJECT_URL (or SUPABASE_URL), SECRET_KEY (or SERVICE_KEY) and SESSION_SECRET are required.");
 }
 
 const db = createClient(supabaseUrl, serviceKey);
+const smtpTransport = smtpHost && smtpUser && smtpPass
+  ? nodemailer.createTransport({
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpSecure,
+    auth: { user: smtpUser, pass: smtpPass }
+  })
+  : null;
 const cookieName = "ck_session";
 const allowedOrigins = (Deno.env.get("CORS_ORIGINS") || "*").split(",").map((origin) => origin.trim()).filter(Boolean);
 
@@ -392,6 +407,46 @@ app.delete("/admin/users/:id", async (req, res) => {
   const deletion = await db.from("registered_users").delete().eq("id", id);
   if (deletion.error) return res.status(500).json({ message: "A fiók törlése nem sikerült." });
   res.json({ success: true });
+});
+
+app.post("/admin/users/:id/reset-password", async (req, res) => {
+  const username = await requireAdmin(req, res);
+  if (!username) return;
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ message: "Érvénytelen azonosító" });
+  const temporaryPassword = crypto.randomUUID().replace(/-/g, "").slice(0, 18);
+  const { data: resetUser, error: userError } = await db
+    .from("registered_users")
+    .select("username,email")
+    .eq("id", id)
+    .maybeSingle();
+  if (userError) return res.status(500).json({ message: "A felhasználó lekérése nem sikerült." });
+  if (!resetUser) return res.status(404).json({ message: "A felhasználó nem található." });
+  const { error: updateError } = await db
+    .from("registered_users")
+    .update({ password: await bcrypt.hash(temporaryPassword, 10), password_reset_required: true })
+    .eq("id", id);
+  if (updateError) return res.status(500).json({ message: "A jelszó visszaállítása nem sikerült." });
+  if (smtpTransport && resetUser.email) {
+    try {
+      await smtpTransport.sendMail({
+        from: smtpFrom,
+        to: resetUser.email,
+        subject: "Cantusok Köre – ideiglenes jelszó",
+        text: `Szia ${resetUser.username}!\n\nAz adminisztrátor visszaállította a jelszavadat.\n\nIdeiglenes jelszó: ${temporaryPassword}\n\nA bejelentkezés után kötelező új jelszót beállítanod.`
+      });
+      return res.json({ success: true, emailSent: true });
+    } catch (error) {
+      console.error("Password reset email failed", error);
+      return res.json({ success: true, emailSent: false, temporaryPassword, message: "Az e-mail küldése nem sikerült, használd az ideiglenes jelszót." });
+    }
+  }
+  res.json({
+    success: true,
+    emailSent: false,
+    temporaryPassword,
+    message: resetUser.email ? "SMTP nincs beállítva." : "Ehhez a fiókhoz nincs e-mail cím mentve."
+  });
 });
 
 app.get("/admin/gallery/pending", async (req, res) => {
