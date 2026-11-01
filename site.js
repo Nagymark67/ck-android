@@ -380,7 +380,7 @@
       const adminPageLink = document.createElement('a');
       adminPageLink.id = 'adminPageLink';
       adminPageLink.className = 'button button-outline';
-      adminPageLink.href = '/admin';
+      adminPageLink.href = 'admin.html';
       adminPageLink.textContent = 'Admin felület';
       loggedInLinks.insertBefore(adminPageLink, drawerLogout);
     }
