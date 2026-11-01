@@ -389,7 +389,8 @@
   const onlineWidget = document.createElement('aside');
   onlineWidget.className = 'online-users-widget';
   onlineWidget.innerHTML = '<strong>Online felhasználók</strong><ul></ul>';
-  document.body.appendChild(onlineWidget);
+  const onlineWidgetMount = document.getElementById('adminOnlineUsers') || document.body;
+  onlineWidgetMount.appendChild(onlineWidget);
   const onlineList = onlineWidget.querySelector('ul');
   const refreshOnlineUsers = async () => {
     try {

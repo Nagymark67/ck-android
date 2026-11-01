@@ -376,6 +376,24 @@ app.get("/admin/users", async (req, res) => {
   res.json({ users });
 });
 
+app.delete("/admin/users/:id", async (req, res) => {
+  const username = await requireAdmin(req, res);
+  if (!username) return;
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ message: "Érvénytelen azonosító" });
+  const { data: target, error: targetError } = await db.from("registered_users").select("username").eq("id", id).maybeSingle();
+  if (targetError) return res.status(500).json({ message: "A felhasználó lekérése nem sikerült." });
+  if (!target) return res.status(404).json({ message: "A felhasználó nem található." });
+  if (target.username === username) return res.status(400).json({ message: "A saját aktív admin fiókja innen nem törölhető." });
+  const targetRoles = await rolesFor(target.username);
+  if (targetRoles.isAllTimeAdmin) return res.status(403).json({ message: "All-time admin fiók nem törölhető innen." });
+  const roleCleanup = await db.from("user_roles").delete().eq("user_id", id);
+  if (roleCleanup.error) return res.status(500).json({ message: "A fiók szerepeinek törlése nem sikerült." });
+  const deletion = await db.from("registered_users").delete().eq("id", id);
+  if (deletion.error) return res.status(500).json({ message: "A fiók törlése nem sikerült." });
+  res.json({ success: true });
+});
+
 app.get("/admin/gallery/pending", async (req, res) => {
   if (!await requireAdmin(req, res)) return;
   const { data, error } = await db.from("gallery_images").select("id,image_url,alt_text,uploaded_by,created_at").eq("approved", false).order("created_at", { ascending: true });

@@ -8,25 +8,48 @@
   <link rel="stylesheet" href="ck_fooldal.css">
   <style>
     body { padding:20px; font-family:inherit; }
+    .admin-layout { display:grid; grid-template-columns:minmax(0, 1fr) 220px; gap:24px; max-width:1400px; margin:0 auto; }
+    .admin-main { min-width:0; }
+    .admin-table-wrap { overflow-x:auto; }
     table { width:100%; border-collapse:collapse; }
-    th,td { padding:8px; border:1px solid #ddd; }
+    th,td { padding:8px; border:1px solid #ddd; vertical-align:top; }
+    td input, td select, td button { margin:2px; }
+    td input[type="email"] { min-width:180px; }
     select { min-width:160px; }
     .small { font-size:0.9em; color:#666; }
+    .admin-sidebar { display:none; }
+    .admin-sidebar .online-users-widget { position:static; max-width:none; }
+    @media (max-width: 800px) {
+      body { padding:12px; }
+      .admin-layout { display:block; }
+      .admin-sidebar { display:block; margin:0 0 18px; }
+      .admin-sidebar .online-users-widget { margin:0; }
+      h1 { font-size:clamp(1.8rem, 9vw, 2.5rem); }
+      table { min-width:760px; }
+      th,td { padding:6px; }
+    }
   </style>
 </head>
 <body>
-  <h1>Admin felület</h1>
-  <button id="adminLogout" type="button">Kijelentkezés</button>
-  <p class="small">Csak<strong> admin</strong> fiókkal elérhető.</p>
-  <div id="notice"></div>
-  <table>
-    <thead>
-      <tr><th>ID</th><th>Felhasználónév</th><th>E-mail</th><th>Státusz</th><th>Szerepek</th><th>Műveletek</th></tr>
-    </thead>
-    <tbody id="usersBody"><tr><td colspan="6">Betöltés...</td></tr></tbody>
-  </table>
-  <h2>Függőben lévő galériaképek</h2>
-  <div id="pendingGallery"><p>Betöltés...</p></div>
+  <div class="admin-layout">
+    <main class="admin-main">
+      <h1>Admin felület</h1>
+      <button id="adminLogout" type="button">Kijelentkezés</button>
+      <p class="small">Csak<strong> admin</strong> fiókkal elérhető.</p>
+      <div id="notice"></div>
+      <div class="admin-table-wrap">
+        <table>
+          <thead>
+            <tr><th>ID</th><th>Felhasználónév</th><th>E-mail</th><th>Státusz</th><th>Szerepek</th><th>Műveletek</th></tr>
+          </thead>
+          <tbody id="usersBody"><tr><td colspan="6">Betöltés...</td></tr></tbody>
+        </table>
+      </div>
+      <h2>Függőben lévő galériaképek</h2>
+      <div id="pendingGallery"><p>Betöltés...</p></div>
+    </main>
+    <aside id="adminOnlineUsers" class="admin-sidebar" aria-label="Online felhasználók"></aside>
+  </div>
 
 <script src="api-config.js"></script>
 <script>
@@ -107,6 +130,15 @@
         }
       });
       opsCell.appendChild(resetBtn);
+      const deleteBtn = document.createElement('button'); deleteBtn.textContent = 'Fiók törlése'; deleteBtn.type = 'button';
+      deleteBtn.addEventListener('click', async () => {
+        if (!window.confirm(`Biztosan törlöd ${u.username} fiókját? Ez a művelet nem vonható vissza.`)) return;
+        const response = await window.ckApiFetch('/admin/users/' + u.id, { method: 'DELETE' });
+        const result = await response.json().catch(() => ({}));
+        if (response.ok) location.reload();
+        else showNotice(result.message || 'A fiók törlése nem sikerült.', true);
+      });
+      opsCell.appendChild(deleteBtn);
 
       tbody.appendChild(tr);
     });
@@ -154,5 +186,6 @@
   }
 })();
 </script>
+<script src="site.js"></script>
 </body>
 </html>

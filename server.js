@@ -783,6 +783,29 @@ app.get('/admin/users', async (req, res) => {
   }
 });
 
+app.delete('/admin/users/:id', async (req, res) => {
+  try {
+    const username = req.session && req.session.user;
+    if (!username) return res.status(401).json({ message: 'Nincs bejelentkezve' });
+    if (!(await userHasRole(username, ['all-time admin']))) return res.status(403).json({ message: 'Nincs jogosultsága' });
+    const userId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(userId) || userId < 1) return res.status(400).json({ message: 'Érvénytelen id' });
+    const [targetRows] = await query('SELECT username FROM registered_users WHERE id = ?', [userId]);
+    if (!targetRows.length) return res.status(404).json({ message: 'A felhasználó nem található.' });
+    if (targetRows[0].username === username) return res.status(400).json({ message: 'A saját aktív admin fiókja innen nem törölhető.' });
+    if (await userHasRole(targetRows[0].username, ['all-time admin'])) return res.status(403).json({ message: 'All-time admin fiók nem törölhető innen.' });
+    await query('DELETE FROM user_roles WHERE user_id = ?', [userId]);
+    const [, result] = await query('DELETE FROM registered_users WHERE id = ?', [userId]);
+    if (!result || result.affectedRows === 0) return res.status(404).json({ message: 'A felhasználó nem található.' });
+    onlineUsers = onlineUsers.filter((onlineUsername) => onlineUsername !== targetRows[0].username);
+    delete onlineUsersLastSeen[targetRows[0].username];
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error in DELETE /admin/users/:id', err && err.stack ? err.stack : err);
+    res.status(500).json({ message: 'A fiók törlése nem sikerült.' });
+  }
+});
+
 app.post('/admin/users/:id/reset-password', async (req, res) => {
   try {
     const username = req.session && req.session.user;
