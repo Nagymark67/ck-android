@@ -417,12 +417,13 @@
     await window.ckApiFetch('/online-ping', { method: 'POST', keepalive: true });
     refreshOnlineUsers();
   };
+  const leaveOnlineStatus = () => window.ckApiFetch('/online-leave', { method: 'POST', keepalive: true });
   userPromise.then((user) => {
     if (!user) return;
     sendOnlinePing();
     window.setInterval(sendOnlinePing, 20000);
     window.addEventListener('pagehide', () => {
-      window.fetch(`${window.CK_API_BASE_URL}/online-leave`, { method: 'POST', credentials: 'include', keepalive: true });
+      leaveOnlineStatus();
     });
   });
   refreshOnlineUsers();
@@ -445,6 +446,12 @@
       loggedInLinks.insertBefore(adminPageLink, drawerLogout);
     }
     if (drawerLogout) drawerLogout.addEventListener('click', async () => {
+      try {
+        await leaveOnlineStatus();
+        await refreshOnlineUsers();
+      } catch (error) {
+        console.warn('Could not update online status before logout', error);
+      }
       const response = await window.ckApiFetch('/logout', { method: 'POST' });
       if (response.ok) window.location.reload();
     });
