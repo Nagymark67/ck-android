@@ -90,7 +90,9 @@ button, .button { cursor: pointer; }
 .theme-toggle, .bug-report-toggle { color: #fff; border: 1px solid rgba(255,255,255,.45); background: transparent; border-radius: 999px; padding: 9px 12px; cursor: pointer; }
 .bug-report-toggle { border-color: rgba(255,220,220,.7); }
 .floating-theme-toggle { color: #211b1b; border-color: #211b1b; background: #fff; }
+.floating-bug-toggle { color: var(--wine); border-color: var(--wine); background: var(--paper); }
 [data-theme="dark"] .floating-theme-toggle { color: #fff; border-color: #fff; background: #211b1b; }
+[data-theme="dark"] .floating-bug-toggle { color: #fff; border-color: #fff; background: #211b1b; }
 [data-theme="dark"] .button { background: #fff; border-color: #fff; color: #211b1b; }
 [data-theme="dark"] .button:hover { background: #ffd1d1; border-color: #ffd1d1; }
 [data-theme="dark"] .button-outline { background: transparent; color: #ffd1d1; border-color: #ffd1d1; }
