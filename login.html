@@ -20,7 +20,7 @@
       event.preventDefault();
       const loginForm = event.currentTarget;
       const message = document.getElementById('loginMessage');
-      const button = loginForm.querySelector('button');
+      const button = loginForm.querySelector('button[type="submit"]');
       button.disabled = true; button.textContent = 'Bejelentkezés…';
       try {
         const response = await window.ckApiFetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: document.getElementById('username').value.trim(), password: document.getElementById('password').value }) });
@@ -42,7 +42,7 @@
       const password = document.getElementById('newPassword').value;
       const passwordAgain = document.getElementById('newPasswordAgain').value;
       if (password !== passwordAgain) { message.textContent = 'A két új jelszó nem egyezik.'; return; }
-      const button = event.currentTarget.querySelector('button');
+      const button = event.currentTarget.querySelector('button[type="submit"]');
       button.disabled = true;
       try {
         const response = await window.ckApiFetch('/password-reset/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
