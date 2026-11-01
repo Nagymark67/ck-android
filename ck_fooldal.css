@@ -109,7 +109,7 @@ body.can-create-post .floating-bug-toggle { bottom: 94px; }
   position: relative;
   overflow: hidden;
   border-radius: 0 0 32px 32px;
-  background: linear-gradient(120deg, rgba(53,0,0,.8), rgba(114,0,0,.3)), url("/uploads/hero.jpg") center/cover;
+  background: linear-gradient(120deg, rgba(53,0,0,.8), rgba(114,0,0,.3)), url("uploads/hero.jpg") center/cover;
   color: #fff;
   box-shadow: var(--shadow);
 }

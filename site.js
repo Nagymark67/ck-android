@@ -341,7 +341,7 @@
           const figure = document.createElement('figure');
           figure.className = 'photo-card';
           const photo = document.createElement('img');
-          photo.src = image.image_url;
+          photo.src = image.image_url.startsWith('/') ? `${window.CK_API_BASE_URL}${image.image_url}` : image.image_url;
           photo.alt = image.alt_text;
           figure.appendChild(photo);
           photoGrid.appendChild(figure);
