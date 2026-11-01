@@ -302,9 +302,61 @@ app.post("/gallery", multipart.array("image", 10), async (req, res) => {
   }
 });
 
-app.get("/online-users", (_req, res) => res.json({ users: [] }));
-app.post("/online-ping", async (req, res) => { if (!await requireUser(req, res)) return; res.json({ success: true }); });
-app.post("/online-leave", async (req, res) => { if (!await requireUser(req, res)) return; res.json({ success: true }); });
+app.delete("/gallery/:id", async (req, res) => {
+  const username = await requireUser(req, res);
+  if (!username) return;
+  if (!await hasRole(username, ["cantus_praeses", "jegyzo"])) return res.status(403).json({ message: "Nincs jogosultsága képet törölni" });
+  const id = parseId(req.params.id);
+  if (!id) return res.status(400).json({ message: "Érvénytelen azonosító" });
+  const { data: image, error: selectError } = await db.from("gallery_images").select("image_url").eq("id", id).maybeSingle();
+  if (selectError) return res.status(500).json({ message: "A kép lekérése nem sikerült" });
+  if (!image) return res.status(404).json({ message: "A kép nem található" });
+  const { error } = await db.from("gallery_images").delete().eq("id", id);
+  if (error) return res.status(500).json({ message: "A kép törlése nem sikerült" });
+  try {
+    const path = decodeURIComponent(new URL(image.image_url).pathname.split("/storage/v1/object/public/uploads/")[1] || "");
+    if (path) await db.storage.from("uploads").remove([path]);
+  } catch (cleanupError) {
+    console.error("Gallery storage cleanup error", cleanupError);
+  }
+  res.json({ success: true });
+});
+
+app.get("/online-users", async (_req, res) => {
+  const cutoff = new Date(Date.now() - 60 * 1000).toISOString();
+  const { data, error } = await db
+    .from("online_users")
+    .select("username, registered_users(status)")
+    .gt("last_seen", cutoff)
+    .order("username");
+  if (error) {
+    console.error("Online users error", error);
+    return res.status(500).json({ message: "Az online felhasználók lekérése nem sikerült", users: [] });
+  }
+  res.json({ users: (data || []).map((entry: { username: string; registered_users?: { status?: string } | null }) => ({ username: entry.username, status: entry.registered_users?.status || null })) });
+});
+
+app.post("/online-ping", async (req, res) => {
+  const username = await requireUser(req, res);
+  if (!username) return;
+  const { error } = await db.from("online_users").upsert({ username, last_seen: new Date().toISOString() }, { onConflict: "username" });
+  if (error) {
+    console.error("Online ping error", error);
+    return res.status(500).json({ message: "Az online állapot mentése nem sikerült" });
+  }
+  res.json({ success: true });
+});
+
+app.post("/online-leave", async (req, res) => {
+  const username = await requireUser(req, res);
+  if (!username) return;
+  const { error } = await db.from("online_users").delete().eq("username", username);
+  if (error) {
+    console.error("Online leave error", error);
+    return res.status(500).json({ message: "Az online állapot törlése nem sikerült" });
+  }
+  res.json({ success: true });
+});
 
 async function requireAdmin(req: express.Request, res: express.Response) {
   const username = await requireUser(req, res);

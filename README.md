@@ -205,6 +205,14 @@ upload up to 10 gallery images at once; those images remain hidden until an
 all-time admin approves them from `admin.html`. Post uploads remain available
 to the existing content roles and support up to 5 attachments.
 
+Users with the `all-time admin`, `cantus_praeses`, or `jegyzo` role can delete
+gallery images. The site shows currently online signed-in users and refreshes
+their presence every 20 seconds; entries expire after 60 seconds without a
+heartbeat.
+
+Run [`supabase/migrations/20261101223000_online_users.sql`](./supabase/migrations/20261101223000_online_users.sql)
+before deploying this presence feature.
+
 ### Streamlit Community Cloud
 
 Community Cloud hosts the Streamlit interface, not this Express API. Deploy

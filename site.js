@@ -52,6 +52,7 @@
   const songLocation = 'Liget Söröző';
   const canManageContent = (user) => user && (user.isAllTimeAdmin || (user.roles || []).some((role) => ['cantus_praeses', 'jegyzo'].includes(role)));
   const canUploadGallery = (user) => user && (user.isAllTimeAdmin || (user.roles || []).some((role) => ['cantus_praeses', 'jegyzo', 'tag'].includes(role)));
+  const canDeleteGallery = (user) => canManageContent(user);
   let canManageEvents = false;
   let rerenderEvents = null;
   const nextSong = (from = new Date()) => {
@@ -337,7 +338,8 @@
   const userPromise = checkUser();
   const photoGrid = document.querySelector('.photo-grid');
   if (photoGrid) {
-      window.ckApiFetch('/gallery').then((response) => response.ok ? response.json() : { images: [] }).then((data) => {
+      Promise.all([window.ckApiFetch('/gallery'), userPromise]).then(async ([response, user]) => {
+        const data = response.ok ? await response.json() : { images: [] };
         (data.images || []).forEach((image) => {
           const figure = document.createElement('figure');
           figure.className = 'photo-card';
@@ -345,6 +347,23 @@
           photo.src = image.image_url.startsWith('/') ? `${window.CK_API_BASE_URL}${image.image_url}` : image.image_url;
           photo.alt = image.alt_text;
           figure.appendChild(photo);
+          if (canDeleteGallery(user) && image.id) {
+            const deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'button button-outline gallery-delete-button';
+            deleteButton.textContent = 'Kép törlése';
+            deleteButton.addEventListener('click', async () => {
+              if (!window.confirm('Biztosan törlöd ezt a képet?')) return;
+              const deleteResponse = await window.ckApiFetch(`/gallery/${image.id}`, { method: 'DELETE' });
+              if (!deleteResponse.ok) {
+                const result = await deleteResponse.json().catch(() => ({}));
+                window.alert(result.message || 'A kép törlése nem sikerült.');
+                return;
+              }
+              figure.remove();
+            });
+            figure.appendChild(deleteButton);
+          }
           photoGrid.appendChild(figure);
         });
       }).catch((error) => console.warn('Could not load gallery images', error));
@@ -367,6 +386,46 @@
         });
       });
   }
+  const onlineWidget = document.createElement('aside');
+  onlineWidget.className = 'online-users-widget';
+  onlineWidget.innerHTML = '<strong>Online felhasználók</strong><ul></ul>';
+  document.body.appendChild(onlineWidget);
+  const onlineList = onlineWidget.querySelector('ul');
+  const refreshOnlineUsers = async () => {
+    try {
+      const response = await window.ckApiFetch('/online-users');
+      if (!response.ok) throw new Error('Online users request failed');
+      const data = await response.json();
+      onlineList.replaceChildren();
+      if (!data.users?.length) {
+        onlineList.innerHTML = '<li>Nincs online felhasználó</li>';
+        return;
+      }
+      data.users.forEach((onlineUser) => {
+        const item = document.createElement('li');
+        item.textContent = onlineUser.username + (onlineUser.status ? ` (${onlineUser.status})` : '');
+        onlineList.appendChild(item);
+      });
+    } catch (error) {
+      onlineList.innerHTML = '<li>Az állapot nem érhető el</li>';
+      console.warn('Could not load online users', error);
+    }
+  };
+  const sendOnlinePing = async () => {
+    if (!(await userPromise)) return;
+    await window.ckApiFetch('/online-ping', { method: 'POST', keepalive: true });
+    refreshOnlineUsers();
+  };
+  userPromise.then((user) => {
+    if (!user) return;
+    sendOnlinePing();
+    window.setInterval(sendOnlinePing, 20000);
+    window.addEventListener('pagehide', () => {
+      window.fetch(`${window.CK_API_BASE_URL}/online-leave`, { method: 'POST', credentials: 'include', keepalive: true });
+    });
+  });
+  refreshOnlineUsers();
+  window.setInterval(refreshOnlineUsers, 20000);
   userPromise.then((user) => {
     const eventButton = document.getElementById('addEventButton');
     canManageEvents = Boolean(user && (user.isAllTimeAdmin || (user.roles || []).some((role) => ['cantus_praeses', 'jegyzo'].includes(role))));
