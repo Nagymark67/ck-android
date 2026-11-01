@@ -184,6 +184,23 @@ To deploy it:
    curl.exe https://<project-ref>.supabase.co/functions/v1/api/posts
    ```
 
+#### Automatic Edge Function deployment
+
+The repository includes a GitHub Actions workflow at
+`.github/workflows/deploy-supabase-function.yml`. It deploys the `api` function
+after a push to `main` that changes `supabase/functions/**` or the Supabase
+configuration. It does not run for ordinary frontend-only changes.
+
+Add these two repository secrets under **Settings → Secrets and variables →
+Actions** before using it:
+
+- `SUPABASE_ACCESS_TOKEN`: a Supabase personal access token
+- `SUPABASE_PROJECT_REF`: the Supabase project reference ID
+
+The function's runtime secrets (`PROJECT_URL`, `SECRET_KEY`,
+`SESSION_SECRET`, and `CORS_ORIGINS`) remain configured in Supabase and are
+not copied into GitHub.
+
 The included [`supabase/config.toml`](./supabase/config.toml) disables the
 Supabase gateway's JWT requirement because this function authenticates users
 with its own `HttpOnly` signed cookie. Keep the function's route-level
