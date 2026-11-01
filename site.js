@@ -120,7 +120,7 @@
       return start < dayEnd && end > dayStart;
     };
     const dateInputValue = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    let selectedCalendarDate = new Date(2026, 9, 1);
+    let selectedCalendarDate = new Date();
     const renderEventDetails = (visible, selectedDate) => {
       eventList.replaceChildren();
       const selectedEvents = visible.filter((event) => eventOccursOnDate(event, selectedDate));
@@ -191,7 +191,7 @@
         years.forEach((year) => yearPicker.add(new Option(String(year), String(year))));
         yearPicker.value = String(currentYear);
       }
-      let month = Number(calendar?.dataset.month || (currentYear === minimumYear ? minimumMonth : new Date().getMonth()));
+      let month = Number(calendar?.dataset.month || (currentYear === minimumYear ? Math.max(minimumMonth, new Date().getMonth()) : new Date().getMonth()));
       const setYear = (year) => {
         if (!yearPicker) return;
         year = Math.max(minimumYear, year);

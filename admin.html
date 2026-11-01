@@ -3,24 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin - Felhasználókezelés</title>
+  <title>Admin felület | Cantusok Köre</title>
   <link rel="icon" type="image/png" href="ck_cimer_szines.png">
   <link rel="stylesheet" href="ck_fooldal.css">
   <style>
-    body { padding:20px; font-family:inherit; }
-    .admin-layout { display:grid; grid-template-columns:minmax(0, 1fr) 220px; gap:24px; max-width:1400px; margin:0 auto; }
+    .admin-layout { display:grid; grid-template-columns:minmax(0, 1fr) 220px; gap:24px; }
     .admin-main { min-width:0; }
-    .admin-table-wrap { overflow-x:auto; }
-    table { width:100%; border-collapse:collapse; }
-    th,td { padding:8px; border:1px solid #ddd; vertical-align:top; }
+    .admin-table-wrap { overflow-x:auto; margin:24px 0 36px; }
+    table { width:100%; border-collapse:collapse; color:var(--ink); }
+    th,td { padding:10px; border:1px solid var(--surface-border); vertical-align:top; }
+    th { color:var(--wine); text-align:left; }
     td input, td select, td button { margin:2px; }
     td input[type="email"] { min-width:180px; }
+    td input, td select { max-width:100%; border:1px solid var(--surface-border); border-radius:8px; padding:7px; background:var(--paper); color:var(--ink); }
+    td button, #pendingGallery button { border:1px solid var(--wine); border-radius:999px; padding:7px 11px; background:var(--wine); color:#fff; cursor:pointer; }
+    td button:hover, #pendingGallery button:hover { background:var(--wine-dark); }
     select { min-width:160px; }
-    .small { font-size:0.9em; color:#666; }
+    .small { font-size:0.9em; color:var(--muted); }
+    .admin-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    #notice { min-height:1.6em; color:var(--wine); }
+    #pendingGallery { display:flex; flex-wrap:wrap; gap:18px; }
+    #pendingGallery figure { margin:0; padding:14px; border:1px solid var(--surface-border); border-radius:14px; background:var(--paper); }
+    #pendingGallery img { border-radius:8px; margin-bottom:8px; }
+    #pendingGallery figcaption { margin-bottom:10px; color:var(--muted); }
     .admin-sidebar { display:none; }
     .admin-sidebar .online-users-widget { position:static; max-width:none; }
     @media (max-width: 800px) {
-      body { padding:12px; }
       .admin-layout { display:block; }
       .admin-sidebar { display:block; margin:0 0 18px; }
       .admin-sidebar .online-users-widget { margin:0; }
@@ -31,11 +39,18 @@
   </style>
 </head>
 <body>
-  <div class="admin-layout">
-    <main class="admin-main">
-      <h1>Admin felület</h1>
-      <button id="adminLogout" type="button">Kijelentkezés</button>
-      <p class="small">Csak<strong> admin</strong> fiókkal elérhető.</p>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><img src="ck_cimer_szines.png" alt="Cantusok Köre logó"><span>Cantusok Köre</span></a>
+      <a class="button button-light" href="index.html">Vissza a főoldalra</a>
+    </div>
+  </header>
+  <main class="page-shell">
+    <div class="admin-layout">
+      <section class="admin-main content-card">
+        <p class="eyebrow">Webhelykezelés</p>
+        <h1>Admin felület</h1>
+        <p class="small">Csak <strong>admin</strong> fiókkal elérhető.</p>
       <div id="notice"></div>
       <div class="admin-table-wrap">
         <table>
@@ -47,9 +62,10 @@
       </div>
       <h2>Függőben lévő galériaképek</h2>
       <div id="pendingGallery"><p>Betöltés...</p></div>
-    </main>
-    <aside id="adminOnlineUsers" class="admin-sidebar" aria-label="Online felhasználók"></aside>
-  </div>
+      </section>
+      <aside id="adminOnlineUsers" class="admin-sidebar" aria-label="Online felhasználók"></aside>
+    </div>
+  </main>
 
 <script src="api-config.js"></script>
 <script>
@@ -176,11 +192,6 @@
         pendingGallery.appendChild(card);
       });
     }
-    document.getElementById('adminLogout').addEventListener('click', async () => {
-      const response = await window.ckApiFetch('/logout', { method: 'POST' });
-      if (response.ok) window.location.href = 'login.html';
-      else showNotice('A kijelentkezés nem sikerült.', true);
-    });
   } catch (e) {
     document.getElementById('usersBody').innerHTML = '<tr><td colspan="6">Hiba: ' + (e.message || e) + '</td></tr>';
   }
