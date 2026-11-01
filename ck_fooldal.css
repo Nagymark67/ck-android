@@ -279,6 +279,10 @@ body.drawer-open .drawer-backdrop { display: block; }
 .form-card h2 { margin-top: 0; color: var(--wine); text-align: center; }
 .form-card form { display: grid; gap: 14px; }
 .form-card input, .form-card select, .form-card textarea { width: 100%; border: 1px solid #d9cece; border-radius: 10px; padding: 12px 14px; background: #fff; }
+.password-field { position: relative; }
+.password-field input { padding-right: 68px; }
+.password-toggle { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); border: 0; border-radius: 999px; padding: 5px 8px; background: transparent; color: var(--wine); font-size: .78rem; cursor: pointer; }
+.password-toggle:hover { background: var(--wine-soft); }
 .form-card button[type="submit"] { border: 0; border-radius: 999px; padding: 12px; background: var(--wine); color: #fff; }
 footer { padding: 28px 16px; color: var(--muted); text-align: center; }
 
