@@ -416,8 +416,11 @@ footer { padding: 28px 16px; color: var(--muted); text-align: center; }
   padding-top: env(safe-area-inset-top, 0);
 }
 .account-drawer {
-  padding-top: calc(140px + env(safe-area-inset-top, 0));
+  padding-top: calc(65px + env(safe-area-inset-top, 0));
   padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0));
+}
+.drawer-close {
+  top: calc(15px + env(safe-area-inset-top, 0));
 }
 footer {
   padding-bottom: calc(28px + env(safe-area-inset-bottom, 0));

@@ -515,6 +515,9 @@ app.delete('/posts/:id', async (req, res) => {
 });
 
 app.get('/gallery', async (req, res) => {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({ message: 'A galéria megtekintéséhez be kell jelentkezni.' });
+  }
   try {
     const [rows] = await query('SELECT id, image_url, alt_text, created_at FROM gallery_images ORDER BY created_at ASC');
     res.json({ images: rows });

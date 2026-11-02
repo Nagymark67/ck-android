@@ -360,7 +360,14 @@
   const photoGrid = document.querySelector('.photo-grid');
   if (photoGrid) {
       Promise.all([window.ckApiFetch('/gallery'), userPromise]).then(async ([response, user]) => {
-        const data = response.ok ? await response.json() : { images: [] };
+        const accessMessage = document.getElementById('photoAccessMessage');
+        if (response.status === 401) {
+          if (accessMessage) accessMessage.innerHTML = 'A galéria megtekintéséhez <a href="login.html">be kell jelentkezned</a>.';
+          return;
+        }
+        if (!response.ok) throw new Error(`Gallery request failed: ${response.status}`);
+        const data = await response.json();
+        if (accessMessage) accessMessage.textContent = data.images?.length ? '' : 'Még nincs elérhető kép.';
         (data.images || []).forEach((image) => {
           const figure = document.createElement('figure');
           figure.className = 'photo-card';
@@ -387,7 +394,11 @@
           }
           photoGrid.appendChild(figure);
         });
-      }).catch((error) => console.warn('Could not load gallery images', error));
+      }).catch((error) => {
+        const accessMessage = document.getElementById('photoAccessMessage');
+        if (accessMessage) accessMessage.textContent = 'A galéria betöltése nem sikerült.';
+        console.warn('Could not load gallery images', error);
+      });
       userPromise.then((user) => {
         const addPhotoButton = document.getElementById('addPhotoButton');
         if (!addPhotoButton || !canUploadGallery(user)) return;
