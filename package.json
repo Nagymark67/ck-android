@@ -5,6 +5,10 @@
   "main": "ck_fooldal.js",
   "scripts": {
     "start": "node server.js",
+    "build": "node scripts/build-app.js",
+    "cap:sync": "npm run build && npx cap sync",
+    "cap:build": "npm run build && npx cap build android",
+    "cap:open": "npx cap open android",
     "hash-passwords": "node scripts/hash_passwords.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -20,14 +24,20 @@
   },
   "homepage": "https://github.com/Nagymark67/ck-weboldal#readme",
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4",
+    "bcryptjs": "^2.4.3",
     "body-parser": "^2.2.0",
     "cors": "^2.8.5",
-    "bcryptjs": "^2.4.3",
     "express": "^5.1.0",
     "express-session": "^1.18.1",
-    "pg": "^8.16.3",
     "multer": "^1.4.4",
-    "nodemailer": "^7.0.9"
+    "nodemailer": "^7.0.9",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "http-server": "^14.1.1"

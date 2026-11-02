@@ -6,9 +6,15 @@
   const nav = document.querySelector('.site-nav');
   if (header) {
     const themeButton = document.createElement('button');
-    themeButton.className = 'theme-toggle floating-theme-toggle';
+    themeButton.className = 'theme-switch';
     themeButton.type = 'button';
-    const updateThemeLabel = () => { themeButton.textContent = document.documentElement.dataset.theme === 'dark' ? 'Világos' : 'Sötét'; };
+    themeButton.setAttribute('role', 'switch');
+    themeButton.innerHTML = '<span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">Sötét téma</span>';
+    const updateThemeLabel = () => {
+      const isDark = document.documentElement.dataset.theme === 'dark';
+      themeButton.setAttribute('aria-checked', isDark.toString());
+      themeButton.querySelector('.switch-label').textContent = isDark ? 'Sötét téma' : 'Világos téma';
+    };
     updateThemeLabel();
     themeButton.addEventListener('click', () => {
       const dark = document.documentElement.dataset.theme !== 'dark';
@@ -17,10 +23,25 @@
       updateThemeLabel();
     });
     const bugButton = document.createElement('button');
-    bugButton.className = 'bug-report-toggle floating-bug-toggle';
+    bugButton.className = 'button button-outline bug-report-toggle';
     bugButton.type = 'button';
     bugButton.textContent = 'Hibajelentés';
-    document.body.append(themeButton, bugButton);
+
+    const drawer = document.querySelector('.account-drawer');
+    if (drawer) {
+      let utils = document.getElementById('drawerUtils');
+      if (!utils) {
+        utils = document.createElement('div');
+        utils.id = 'drawerUtils';
+        utils.className = 'drawer-utils';
+        drawer.appendChild(utils);
+      }
+      utils.appendChild(themeButton);
+      utils.appendChild(bugButton);
+    } else {
+      document.body.append(themeButton, bugButton);
+    }
+
     bugButton.addEventListener('click', () => { const modal = document.getElementById('bugReportModal'); if (modal) modal.hidden = false; });
   }
   if (header) {
@@ -386,13 +407,27 @@
         });
       });
   }
-  const onlineWidget = document.createElement('aside');
-  onlineWidget.className = 'online-users-widget';
-  onlineWidget.innerHTML = '<strong>Online felhasználók</strong><ul></ul>';
-  const onlineWidgetMount = document.getElementById('adminOnlineUsers') || document.body;
-  onlineWidgetMount.appendChild(onlineWidget);
-  const onlineList = onlineWidget.querySelector('ul');
+  const isAuthPage = window.location.pathname.includes('login.html') || window.location.pathname.includes('register.html');
+  let onlineList = null;
+
+  if (!isAuthPage) {
+    const onlineWidget = document.createElement('aside');
+    onlineWidget.className = 'online-users-widget';
+    onlineWidget.innerHTML = '<strong>Online felhasználók</strong><ul></ul>';
+    const drawerUtils = document.getElementById('drawerUtils');
+    const drawer = document.querySelector('.account-drawer');
+    const onlineWidgetMount = document.getElementById('adminOnlineUsers') || drawer || document.body;
+
+    if (onlineWidgetMount === drawer && drawerUtils) {
+      drawer.insertBefore(onlineWidget, drawerUtils);
+    } else {
+      onlineWidgetMount.appendChild(onlineWidget);
+    }
+    onlineList = onlineWidget.querySelector('ul');
+  }
+
   const refreshOnlineUsers = async () => {
+    if (!onlineList) return;
     try {
       const response = await window.ckApiFetch('/online-users');
       if (!response.ok) throw new Error('Online users request failed');
@@ -445,7 +480,7 @@
       adminPageLink.textContent = 'Admin felület';
       loggedInLinks.insertBefore(adminPageLink, drawerLogout);
     }
-    if (drawerLogout) drawerLogout.addEventListener('click', async () => {
+    const handleLogout = async () => {
       try {
         await leaveOnlineStatus();
         await refreshOnlineUsers();
@@ -454,7 +489,21 @@
       }
       const response = await window.ckApiFetch('/logout', { method: 'POST' });
       if (response.ok) window.location.reload();
+    };
+
+    if (drawerLogout) drawerLogout.addEventListener('click', handleLogout);
+
+    let inactivityTimeout;
+    const resetInactivityTimer = () => {
+      clearTimeout(inactivityTimeout);
+      inactivityTimeout = setTimeout(() => {
+        handleLogout();
+      }, 120000);
+    };
+    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach((evt) => {
+      window.addEventListener(evt, resetInactivityTimer, { passive: true });
     });
+    resetInactivityTimer();
   });
 
   const postsList = document.getElementById('posts-list');
@@ -607,4 +656,62 @@
       message.textContent = result.message || 'A poszt közzététele nem sikerült.';
     }
   });
+
+  // Native Capacitor App Integration
+  if (window.Capacitor && window.Capacitor.Plugins) {
+    const { App, StatusBar, SplashScreen } = window.Capacitor.Plugins;
+
+    if (StatusBar) {
+      try {
+        StatusBar.setBackgroundColor({ color: '#4b0000' });
+        StatusBar.setStyle({ style: 'DARK' });
+      } catch (err) {
+        console.warn('Capacitor StatusBar setup failed', err);
+      }
+    }
+
+    if (SplashScreen) {
+      try {
+        SplashScreen.hide();
+      } catch (err) {
+        console.warn('Capacitor SplashScreen hide failed', err);
+      }
+    }
+
+    if (App) {
+      App.addListener('backButton', ({ canGoBack }) => {
+        // 1. Close drawers or mobile navigation
+        if (body.classList.contains('drawer-open') || body.classList.contains('nav-open')) {
+          body.classList.remove('drawer-open', 'nav-open');
+          return;
+        }
+
+        // 2. Close composer modal
+        const composerModal = document.getElementById('composer');
+        if (composerModal && composerModal.classList.contains('open')) {
+          composerModal.classList.remove('open');
+          return;
+        }
+
+        // 3. Close other modals (bug report, photo modal, event modal)
+        const modals = ['bugReportModal', 'photoModal', 'eventModal'];
+        for (const modalId of modals) {
+          const m = document.getElementById(modalId);
+          if (m && !m.hidden) {
+            m.hidden = true;
+            return;
+          }
+        }
+
+        // 4. History navigation or exit
+        const pathname = window.location.pathname.replace(/^\//, '');
+        const isHome = !pathname || pathname === 'index.html';
+        if (canGoBack && !isHome) {
+          window.history.back();
+        } else {
+          App.exitApp();
+        }
+      });
+    }
+  }
 })();

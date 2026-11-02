@@ -23,6 +23,69 @@
   box-shadow: var(--shadow);
   font-size: .9rem;
 }
+.account-drawer .online-users-widget {
+  position: static;
+  max-width: 100%;
+  box-shadow: none;
+  margin-top: 1rem;
+  padding: .75rem 0;
+  border: none;
+  background: transparent;
+}
+.drawer-utils {
+  margin-top: auto;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--surface-border);
+  display: flex;
+  flex-direction: column;
+}
+.theme-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: .95rem;
+  margin-top: 16px;
+  margin-bottom: 32px;
+  text-align: left;
+}
+.theme-switch:hover {
+  background: rgba(150, 150, 150, 0.05);
+}
+.theme-switch .switch-track {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  background: #ccc;
+  border-radius: 999px;
+  transition: background .3s;
+}
+[data-theme="dark"] .theme-switch .switch-track {
+  background: var(--wine);
+}
+.theme-switch .switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform .3s;
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+.theme-switch[aria-checked="true"] .switch-thumb {
+  transform: translateX(18px);
+}
+.theme-switch .switch-label {
+  flex: 1;
+}
 .online-users-widget ul {
   margin: .4rem 0 0;
   padding-left: 1.1rem;
@@ -108,19 +171,10 @@ button, .button { cursor: pointer; }
 }
 .account-toggle { border: 1px solid rgba(255,255,255,.45); }
 .menu-toggle { display: none; font-size: 1.5rem; }
-.theme-toggle, .bug-report-toggle { color: #fff; border: 1px solid rgba(255,255,255,.45); background: transparent; border-radius: 999px; padding: 9px 12px; cursor: pointer; }
-.bug-report-toggle { border-color: rgba(255,220,220,.7); }
-.floating-theme-toggle { color: #211b1b; border-color: #211b1b; background: #fff; }
-.floating-bug-toggle { color: var(--wine); border-color: var(--wine); background: var(--paper); }
-[data-theme="dark"] .floating-theme-toggle { color: #fff; border-color: #fff; background: #211b1b; }
-[data-theme="dark"] .floating-bug-toggle { color: #fff; border-color: #fff; background: #211b1b; }
+
 [data-theme="dark"] .button { background: #fff; border-color: #fff; color: #211b1b; }
 [data-theme="dark"] .button:hover { background: #ffd1d1; border-color: #ffd1d1; }
 [data-theme="dark"] .button-outline { background: transparent; color: #ffd1d1; border-color: #ffd1d1; }
-.floating-theme-toggle, .floating-bug-toggle { position: fixed; bottom: 24px; z-index: 15; box-shadow: var(--shadow); }
-.floating-theme-toggle { left: 24px; }
-.floating-bug-toggle { right: 24px; }
-body.can-create-post .floating-bug-toggle { bottom: 94px; }
 
 .page-shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 42px 0 70px; }
 .hero {
@@ -264,11 +318,15 @@ body.can-create-post .floating-bug-toggle { bottom: 94px; }
   top: 0; right: 0; bottom: 0;
   z-index: 30;
   width: min(360px, 92vw);
+  padding: 110px 28px 28px;
   padding: 90px 28px 28px;
   background: var(--paper);
   box-shadow: -15px 0 45px rgba(0,0,0,.18);
   transform: translateX(105%);
   transition: transform .28s ease;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
 }
 body.drawer-open .account-drawer { transform: translateX(0); }
 body.drawer-open .drawer-backdrop { display: block; }
@@ -325,9 +383,6 @@ footer { padding: 28px 16px; color: var(--muted); text-align: center; }
     font-size: .75rem;
     line-height: 1.2;
   }
-  .floating-theme-toggle { left: 12px; }
-  .floating-bug-toggle { right: 12px; }
-  body.can-create-post .floating-bug-toggle { bottom: 82px; }
   .floating-create { right: 12px; bottom: 12px; width: 52px; height: 52px; }
   .home-grid, .feature-grid, .photo-grid { grid-template-columns: 1fr; }
   .photo-card:last-child:nth-child(3n + 1),
@@ -355,3 +410,21 @@ footer { padding: 28px 16px; color: var(--muted); text-align: center; }
   .event-actions .button { justify-content: center; }
   .modal, .bug-report-card { padding: 20px 16px; }
 }
+
+/* Mobile Safe Area & Capacitor Native App Support */
+.site-header {
+  padding-top: env(safe-area-inset-top, 0);
+}
+.account-drawer {
+  padding-top: calc(140px + env(safe-area-inset-top, 0));
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0));
+}
+footer {
+  padding-bottom: calc(28px + env(safe-area-inset-bottom, 0));
+}
+@media (max-width: 900px) {
+  .floating-create {
+    bottom: calc(12px + env(safe-area-inset-bottom, 0));
+  }
+}
+

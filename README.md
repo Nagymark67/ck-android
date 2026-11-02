@@ -48,6 +48,36 @@ NODE_ENV=production
 ### Stílusok (ck_fooldal.css)
 - Modern, letisztult és reszponzív webes megjelenés.
 
+## Mobilalkalmazás (Capacitor / Android)
+
+A weboldal közvetlenül Android alkalmazásként is használható a Capacitor segítségével:
+- A natív `android/` projekt helyi build-eszköz; a `.gitignore` miatt nem kerül a weboldal repójába.
+- A webes forrás, a Capacitor konfiguráció és a build-szkriptek maradnak verziókezelve.
+- **Alkalmazás-azonosító (App ID)**: `hu.cantusokkore.app`
+- **Alkalmazás neve**: Cantusok Köre
+- **Natív funkciók**:
+  - Cantusok Köre címeres egyedi indítóikonok és indítóképernyő (Splash Screen)
+  - Bordó (`#4b0000`) státuszbár integráció
+  - Hardveres Android vissza-gomb kezelés (előbb a megnyitott modálok/fiók fiók záródik be, utána lapoz vissza, vagy lép ki a főoldalról)
+  - Notchek és lekerekített kijelzők (safe-area) támogatása
+
+### Hasznos parancsok:
+- **Webes fájlok előkészítése**: `npm run build`
+- **Szinkronizálás az Android projekttel**: `npm run cap:sync`
+- **Megnyitás Android Studio-ban**: `npm run cap:open` (vagy az `android` mappa megnyitása)
+- **Debug APK építése parancssorból**:
+  ```powershell
+  cd android
+  .\gradlew.bat assembleDebug
+  ```
+  A kész telepíthető APK itt található: `android/app/build/outputs/apk/debug/app-debug.apk`
+
+Ha az `android/` mappa új gépen hiányzik, egyszer kell létrehozni a helyi natív projektet:
+```powershell
+npx cap add android
+npm run cap:sync
+```
+
 ---
 
 További részletekért és a teljes funkciólistáért tekintsd meg a [forráskódot a GitHubon](https://github.com/Nagymark67/ck-weboldal/search?q=function).

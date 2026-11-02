@@ -4,3 +4,11 @@ __pycache__/
 .env
 .env.*
 !.env.example
+node_modules/
+www/
+
+# Local Android Studio/Capacitor project; keep native app files out of the web repo.
+android/
+.idea/
+assets/
+icons/
