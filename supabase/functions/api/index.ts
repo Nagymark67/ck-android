@@ -108,7 +108,7 @@ async function rolesFor(username: string) {
   if (error) throw error;
   const explicit = (data?.user_roles || []).map((entry: { roles?: { role_name?: string } | null }) => entry.roles?.role_name).filter(Boolean) as string[];
   const derived = data?.status === "Cantus Praeses" ? ["cantus_praeses"] : data?.status === "Jegyző" ? ["jegyzo"] : data?.status === "Alapító" ? ["alapito"] : data?.status === "Tag" ? ["tag"] : [];
-  return { roles: [...new Set([...explicit.filter((role) => role !== "all-time admin"), ...derived])], isAllTimeAdmin: explicit.includes("all-time admin") };
+  return { roles: [...new Set([...explicit.filter((role) => role !== "all-time admin"), ...derived])], isAllTimeAdmin: explicit.includes("all-time admin"), status: data?.status || null };
 }
 
 async function requireUser(req: express.Request, res: express.Response) {
@@ -293,8 +293,18 @@ app.delete("/posts/:id", async (req, res) => {
 
 app.get("/gallery", async (req, res) => {
   if (!await requireUser(req, res)) return;
-  const { data, error } = await db.from("gallery_images").select("id,image_url,alt_text,created_at").eq("approved", true).order("created_at", { ascending: true });
-  if (error) return res.status(500).json({ message: "A galéria betöltése nem sikerült" });
+  let { data, error } = await db.from("gallery_images").select("id,image_url,alt_text,created_at").eq("approved", true).order("created_at", { ascending: true });
+  if (error) {
+    const fallback = await db.from("gallery_images").select("id,image_url,alt_text,created_at").order("created_at", { ascending: true });
+    if (!fallback.error) {
+      data = fallback.data;
+      error = null;
+    }
+  }
+  if (error) {
+    console.error("Gallery fetch error:", error);
+    return res.json({ images: [] });
+  }
   res.json({ images: data || [] });
 });
 

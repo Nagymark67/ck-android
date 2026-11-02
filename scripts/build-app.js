@@ -14,6 +14,7 @@ const filesToCopy = [
   'login.html',
   'register.html',
   'admin.html',
+  'daloskonyv.html',
   'ck_fooldal.css',
   'api-config.js',
   'site.js',
@@ -23,7 +24,9 @@ const filesToCopy = [
   'CK címer fekete-fehér.png',
   'vivatselmec.png',
   'received_1401180557458272.jpeg',
-  'daloskönyv 2025 végleges .pdf'
+  'daloskonyv.pdf',
+  'pdf.min.js',
+  'pdf.worker.min.js'
 ];
 
 const dirsToCopy = [

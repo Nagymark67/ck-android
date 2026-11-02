@@ -357,9 +357,10 @@ app.get('/me', (req, res) => {
       if (s === 'Cantus Praeses') derivedRoles.push('cantus_praeses');
       if (s === 'Jegyző') derivedRoles.push('jegyzo');
       if (s === 'Alapító') derivedRoles.push('alapito');
+      if (s === 'Tag') derivedRoles.push('tag');
     }
     const roles = Array.from(new Set([...explicitRoles, ...derivedRoles]));
-    res.json({ username: req.session.user, roles, isAllTimeAdmin });
+    res.json({ username: req.session.user, roles, status, isAllTimeAdmin });
             } catch (err) {
                 console.error('Error fetching roles for /me', err);
         res.json({ username: req.session.user, roles: [], isAllTimeAdmin: false });
@@ -519,11 +520,16 @@ app.get('/gallery', async (req, res) => {
     return res.status(401).json({ message: 'A galéria megtekintéséhez be kell jelentkezni.' });
   }
   try {
-    const [rows] = await query('SELECT id, image_url, alt_text, created_at FROM gallery_images ORDER BY created_at ASC');
-    res.json({ images: rows });
+    let rows;
+    try {
+      [rows] = await query('SELECT id, image_url, alt_text, created_at FROM gallery_images WHERE approved = 1 OR approved IS NULL ORDER BY created_at ASC');
+    } catch {
+      [rows] = await query('SELECT id, image_url, alt_text, created_at FROM gallery_images ORDER BY created_at ASC');
+    }
+    res.json({ images: rows || [] });
   } catch (err) {
     console.error('Error fetching gallery images', err);
-    res.status(500).json({ message: 'A galéria betöltése nem sikerült' });
+    res.json({ images: [] });
   }
 });
 

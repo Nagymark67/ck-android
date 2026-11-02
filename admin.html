@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="ck_cimer_szines.png">
   <link rel="stylesheet" href="ck_fooldal.css">
   <style>
-    .admin-layout { display:grid; grid-template-columns:minmax(0, 1fr) 220px; gap:24px; }
+    .admin-layout { width: 100%; }
     .admin-main { min-width:0; }
     .admin-table-wrap { overflow-x:auto; margin:24px 0 36px; }
     table { width:100%; border-collapse:collapse; color:var(--ink); }
@@ -26,12 +26,7 @@
     #pendingGallery figure { margin:0; padding:14px; border:1px solid var(--surface-border); border-radius:14px; background:var(--paper); }
     #pendingGallery img { border-radius:8px; margin-bottom:8px; }
     #pendingGallery figcaption { margin-bottom:10px; color:var(--muted); }
-    .admin-sidebar { display:none; }
-    .admin-sidebar .online-users-widget { position:static; max-width:none; }
     @media (max-width: 800px) {
-      .admin-layout { display:block; }
-      .admin-sidebar { display:block; margin:0 0 18px; }
-      .admin-sidebar .online-users-widget { margin:0; }
       h1 { font-size:clamp(1.8rem, 9vw, 2.5rem); }
       table { min-width:760px; }
       th,td { padding:6px; }
@@ -42,9 +37,26 @@
   <header class="site-header">
     <div class="header-inner">
       <a class="brand" href="index.html"><img src="ck_cimer_szines.png" alt="Cantusok Köre logó"><span>Cantusok Köre</span></a>
+      <nav class="site-nav" aria-label="Fő navigáció">
+        <a href="index.html">Főoldal</a>
+        <a href="members.html">Tagok</a>
+        <a href="photos.html">Fotók</a>
+        <a href="events.html">Események</a>
+        <a href="notarulett.html">Nótarulett</a>
+        <a class="nav-daloskonyv" href="daloskonyv.html" hidden style="display: none;">Daloskönyv</a>
+        <a class="active" href="admin.html">Admin</a>
+      </nav>
+      <button class="account-toggle" type="button">Fiók</button>
+      <button class="menu-toggle" type="button" aria-label="Menü megnyitása">☰</button>
       <a class="button button-light" href="index.html">Vissza a főoldalra</a>
     </div>
   </header>
+  <div class="drawer-backdrop"></div>
+  <aside class="account-drawer" aria-label="Fiók">
+    <button class="drawer-close" type="button" aria-label="Bezárás">×</button>
+    <div id="authLinks"><a class="button" href="login.html">Bejelentkezés</a><a class="button button-outline" href="register.html">Regisztráció</a></div>
+    <div id="loggedInLinks" hidden><p id="drawerUser"></p><button id="drawerLogout" class="button" type="button">Kijelentkezés</button></div>
+  </aside>
   <main class="page-shell">
     <div class="admin-layout">
       <section class="admin-main content-card">
@@ -60,10 +72,12 @@
           <tbody id="usersBody"><tr><td colspan="6">Betöltés...</td></tr></tbody>
         </table>
       </div>
-      <h2>Függőben lévő galériaképek</h2>
-      <div id="pendingGallery"><p>Betöltés...</p></div>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-top:24px;">
+        <h2 style="margin:0;">Függőben lévő galériaképek</h2>
+        <a class="button button-outline" href="photos.html" style="font-size:0.9rem;">Élő galéria megtekintése &rarr;</a>
+      </div>
+      <div id="pendingGallery" style="margin-top:16px;"><p>Betöltés...</p></div>
       </section>
-      <aside id="adminOnlineUsers" class="admin-sidebar" aria-label="Online felhasználók"></aside>
     </div>
   </main>
 

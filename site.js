@@ -28,6 +28,8 @@
     bugButton.textContent = 'Hibajelentés';
 
     const drawer = document.querySelector('.account-drawer');
+    const isAuthPage = window.location.pathname.includes('login.html') || window.location.pathname.includes('register.html');
+
     if (drawer) {
       let utils = document.getElementById('drawerUtils');
       if (!utils) {
@@ -38,7 +40,7 @@
       }
       utils.appendChild(themeButton);
       utils.appendChild(bugButton);
-    } else {
+    } else if (!isAuthPage) {
       document.body.append(themeButton, bugButton);
     }
 
@@ -359,21 +361,38 @@
   const userPromise = checkUser();
   const photoGrid = document.querySelector('.photo-grid');
   if (photoGrid) {
-      Promise.all([window.ckApiFetch('/gallery'), userPromise]).then(async ([response, user]) => {
+      const defaultGalleryImages = [
+        { image_url: 'https://ljxoykuwidoirscbdfaf.supabase.co/storage/v1/object/public/uploads/cantusok-koere-01.jpg', alt_text: 'A Cantusok Köre tagjai erdei kiránduláson', fallback_url: 'uploads/cantusok-koere-01.jpg' },
+        { image_url: 'https://ljxoykuwidoirscbdfaf.supabase.co/storage/v1/object/public/uploads/cantusok-koere-02.jpg', alt_text: 'A Cantusok Köre tagjai szabadtéri programon', fallback_url: 'uploads/cantusok-koere-02.jpg' },
+        { image_url: 'https://ljxoykuwidoirscbdfaf.supabase.co/storage/v1/object/public/uploads/cantusok-koere-03.jpg', alt_text: 'Baráti pillanat egy esti rendezvényen', fallback_url: 'uploads/cantusok-koere-03.jpg' },
+        { image_url: 'https://ljxoykuwidoirscbdfaf.supabase.co/storage/v1/object/public/uploads/cantusok-koere-04.jpg', alt_text: 'Cantusok Köre tagjai ünnepi öltözetben', fallback_url: 'uploads/cantusok-koere-04.jpg' },
+        { image_url: 'https://ljxoykuwidoirscbdfaf.supabase.co/storage/v1/object/public/uploads/cantusok-koere-05.jpg', alt_text: 'Közös fotó egy rendezvényen', fallback_url: 'uploads/cantusok-koere-05.jpg' },
+        { image_url: 'https://ljxoykuwidoirscbdfaf.supabase.co/storage/v1/object/public/uploads/cantusok-koere-06.jpg', alt_text: 'A Cantusok Köre tagjai szabadtéri eseményen', fallback_url: 'uploads/cantusok-koere-06.jpg' },
+        { image_url: 'https://ljxoykuwidoirscbdfaf.supabase.co/storage/v1/object/public/uploads/hero.jpg', alt_text: 'A Cantusok Köre tagjai közös ünnepi fotón', fallback_url: 'uploads/hero.jpg' }
+      ];
+
+      const renderGallery = (images, user) => {
         const accessMessage = document.getElementById('photoAccessMessage');
-        if (response.status === 401) {
-          if (accessMessage) accessMessage.innerHTML = 'A galéria megtekintéséhez <a href="login.html">be kell jelentkezned</a>.';
-          return;
-        }
-        if (!response.ok) throw new Error(`Gallery request failed: ${response.status}`);
-        const data = await response.json();
-        if (accessMessage) accessMessage.textContent = data.images?.length ? '' : 'Még nincs elérhető kép.';
-        (data.images || []).forEach((image) => {
+        if (accessMessage) accessMessage.textContent = images.length ? '' : 'Még nincs elérhető kép.';
+        photoGrid.innerHTML = '';
+        images.forEach((image) => {
           const figure = document.createElement('figure');
           figure.className = 'photo-card';
           const photo = document.createElement('img');
-          photo.src = image.image_url.startsWith('/') ? `${window.CK_API_BASE_URL}${image.image_url}` : image.image_url;
-          photo.alt = image.alt_text;
+          const resolvedSrc = image.image_url.startsWith('/') ? `${window.CK_API_BASE_URL}${image.image_url}` : image.image_url;
+          photo.src = resolvedSrc;
+          photo.alt = image.alt_text || 'Cantusok Köre fotó';
+          photo.loading = 'lazy';
+          photo.onerror = () => {
+            if (image.fallback_url && photo.src !== image.fallback_url) {
+              photo.src = image.fallback_url;
+            } else {
+              const filename = image.image_url.split('/').pop();
+              if (filename && !photo.src.endsWith(`uploads/${filename}`)) {
+                photo.src = `uploads/${filename}`;
+              }
+            }
+          };
           figure.appendChild(photo);
           if (canDeleteGallery(user) && image.id) {
             const deleteButton = document.createElement('button');
@@ -394,10 +413,46 @@
           }
           photoGrid.appendChild(figure);
         });
-      }).catch((error) => {
+      };
+
+      Promise.all([
+        window.ckApiFetch('/gallery').catch((err) => ({ ok: false, status: 0, error: err })),
+        userPromise
+      ]).then(async ([response, user]) => {
         const accessMessage = document.getElementById('photoAccessMessage');
-        if (accessMessage) accessMessage.textContent = 'A galéria betöltése nem sikerült.';
+        if ((response.status === 401 && !user) || (!user && !response.ok)) {
+          if (accessMessage) accessMessage.innerHTML = 'A galéria megtekintéséhez <a href="login.html">be kell jelentkezned</a>.';
+          return;
+        }
+
+        let dynamicImages = [];
+        if (response.ok) {
+          try {
+            const data = await response.json();
+            dynamicImages = Array.isArray(data.images) ? data.images : [];
+          } catch (e) {
+            console.warn('Could not parse gallery JSON', e);
+          }
+        }
+
+        const allImages = [...defaultGalleryImages];
+        dynamicImages.forEach((img) => {
+          if (!allImages.some((existing) => existing.id && existing.id === img.id)) {
+            allImages.push(img);
+          }
+        });
+
+        renderGallery(allImages, user);
+      }).catch((error) => {
         console.warn('Could not load gallery images', error);
+        userPromise.then((user) => {
+          const accessMessage = document.getElementById('photoAccessMessage');
+          if (user) {
+            renderGallery(defaultGalleryImages, user);
+          } else {
+            if (accessMessage) accessMessage.innerHTML = 'A galéria megtekintéséhez <a href="login.html">be kell jelentkezned</a>.';
+          }
+        });
       });
       userPromise.then((user) => {
         const addPhotoButton = document.getElementById('addPhotoButton');
@@ -419,15 +474,16 @@
       });
   }
   const isAuthPage = window.location.pathname.includes('login.html') || window.location.pathname.includes('register.html');
+  const isAdminPage = window.location.pathname.includes('admin.html');
   let onlineList = null;
 
-  if (!isAuthPage) {
+  if (!isAuthPage && !isAdminPage) {
     const onlineWidget = document.createElement('aside');
     onlineWidget.className = 'online-users-widget';
     onlineWidget.innerHTML = '<strong>Online felhasználók</strong><ul></ul>';
     const drawerUtils = document.getElementById('drawerUtils');
     const drawer = document.querySelector('.account-drawer');
-    const onlineWidgetMount = document.getElementById('adminOnlineUsers') || drawer || document.body;
+    const onlineWidgetMount = drawer || document.body;
 
     if (onlineWidgetMount === drawer && drawerUtils) {
       drawer.insertBefore(onlineWidget, drawerUtils);
@@ -475,6 +531,54 @@
   refreshOnlineUsers();
   window.setInterval(refreshOnlineUsers, 20000);
   userPromise.then((user) => {
+    // Check Daloskönyv access: Tag, Jegyző, Cantus Praeses, Alapító, all time admin
+    const normalizeRoleText = (text) => String(text || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '');
+
+    const canViewDaloskonyv = Boolean(user && (
+      user.isAllTimeAdmin ||
+      (() => {
+        const allowed = ['tag', 'jegyzo', 'cantuspraeses', 'alapito', 'alltimeadmin', 'admin'];
+        const roles = (user.roles || []).map(normalizeRoleText);
+        if (roles.some((r) => allowed.includes(r))) return true;
+        const status = normalizeRoleText(user.status);
+        if (allowed.includes(status)) return true;
+        if (user.role && allowed.includes(normalizeRoleText(user.role))) return true;
+        return false;
+      })()
+    ));
+
+    if (canViewDaloskonyv) {
+      document.querySelectorAll('.nav-daloskonyv').forEach((el) => {
+        el.hidden = false;
+        el.style.display = '';
+      });
+      document.querySelectorAll('.site-nav').forEach((nav) => {
+        if (!nav.querySelector('.nav-daloskonyv')) {
+          const a = document.createElement('a');
+          a.className = 'nav-daloskonyv' + (window.location.pathname.includes('daloskonyv.html') ? ' active' : '');
+          a.href = new URL('daloskonyv.html', document.baseURI).href;
+          a.textContent = 'Daloskönyv';
+          nav.appendChild(a);
+        }
+      });
+      document.getElementById('drawerDaloskonyvLink')?.remove();
+    } else {
+      document.querySelectorAll('.nav-daloskonyv').forEach((el) => {
+        el.hidden = true;
+        el.style.display = 'none';
+      });
+      document.getElementById('drawerDaloskonyvLink')?.remove();
+    }
+
+    if (window.location.pathname.includes('daloskonyv.html') && !canViewDaloskonyv) {
+      window.location.replace('index.html');
+      return; // prevent further execution on this page
+    }
+
     const eventButton = document.getElementById('addEventButton');
     canManageEvents = Boolean(user && (user.isAllTimeAdmin || (user.roles || []).some((role) => ['cantus_praeses', 'jegyzo'].includes(role))));
     if (eventButton && canManageEvents) eventButton.hidden = false;
@@ -503,18 +607,6 @@
     };
 
     if (drawerLogout) drawerLogout.addEventListener('click', handleLogout);
-
-    let inactivityTimeout;
-    const resetInactivityTimer = () => {
-      clearTimeout(inactivityTimeout);
-      inactivityTimeout = setTimeout(() => {
-        handleLogout();
-      }, 120000);
-    };
-    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach((evt) => {
-      window.addEventListener(evt, resetInactivityTimer, { passive: true });
-    });
-    resetInactivityTimer();
   });
 
   const postsList = document.getElementById('posts-list');
@@ -721,6 +813,46 @@
           window.history.back();
         } else {
           App.exitApp();
+        }
+      });
+
+      // Manage online status and 5-minute background auto-logout
+      let backgroundLogoutTimer = null;
+
+      App.addListener('appStateChange', async ({ isActive }) => {
+        const user = await checkUser();
+        if (user) {
+          if (!isActive) {
+            try {
+              await window.ckApiFetch('/online-leave', { method: 'POST', keepalive: true });
+            } catch (error) {
+              console.warn('Could not update online status on app close', error);
+            }
+
+            // Start a 5-minute background timer before logging out
+            if (!backgroundLogoutTimer) {
+              backgroundLogoutTimer = setTimeout(async () => {
+                try {
+                  await window.ckApiFetch('/logout', { method: 'POST' });
+                  window.location.reload();
+                } catch (e) {
+                  console.warn('Background logout failed', e);
+                }
+              }, 5 * 60 * 1000);
+            }
+          } else {
+            // App resumed before 5 minutes: cancel background logout
+            if (backgroundLogoutTimer) {
+              clearTimeout(backgroundLogoutTimer);
+              backgroundLogoutTimer = null;
+            }
+
+            try {
+              await window.ckApiFetch('/online-ping', { method: 'POST' });
+            } catch (error) {
+              console.warn('Could not ping online status on app resume', error);
+            }
+          }
         }
       });
     }
