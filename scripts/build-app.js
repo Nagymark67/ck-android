@@ -25,6 +25,7 @@ const filesToCopy = [
   'vivatselmec.png',
   'received_1401180557458272.jpeg',
   'daloskonyv.pdf',
+  'daloskonyv-data.js',
   'pdf.min.js',
   'pdf.worker.min.js'
 ];
