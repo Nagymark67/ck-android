@@ -7,6 +7,7 @@ if (-not (Test-Path $srcPath)) {
 }
 
 $srcImg = [System.Drawing.Image]::FromFile((Resolve-Path $srcPath))
+$srcImg.MakeTransparent([System.Drawing.Color]::White)
 $resDir = Join-Path $PSScriptRoot "..\android\app\src\main\res"
 
 function Save-ResizedImage {

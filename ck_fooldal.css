@@ -223,6 +223,9 @@ button, .button { cursor: pointer; }
 .section-heading, .page-heading { max-width: 700px; margin: 0 auto 28px; text-align: center; }
 .section-heading h2, .page-heading h1 { margin: 0; color: var(--wine); font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1.1; }
 .content-card { background: var(--paper); border-radius: 24px; padding: clamp(22px, 4vw, 42px); box-shadow: var(--shadow); }
+.songbook-card { padding: clamp(12px, 2vw, 24px); }
+.songbook-frame { display: block; width: 100%; height: min(78vh, 1000px); min-height: 600px; border: 1px solid var(--surface-border); border-radius: 12px; background: var(--background); }
+.songbook-fallback { margin: 18px 0 0; text-align: center; }
 .home-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; align-items: start; }
 .news-card { min-height: 260px; }
 .online-list { padding-left: 20px; }
