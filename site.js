@@ -623,19 +623,35 @@
     }
     return '';
   };
+  const attachmentList = (attachments) => {
+    if (Array.isArray(attachments)) return attachments;
+    if (typeof attachments !== 'string' || !attachments.trim()) return [];
+    try {
+      const parsed = JSON.parse(attachments);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
   function renderPost(post) {
     const article = document.createElement('article');
     article.className = 'news-post';
     const date = post.created_at ? new Date(post.created_at).toLocaleString('hu-HU') : '';
     article.innerHTML = `<div class="news-meta"><strong>${post.author_username || 'Ismeretlen szerző'}</strong> · ${date}</div><div class="news-content">${post.content || ''}</div>`;
-    (post.attachments || []).forEach((attachment) => {
+    attachmentList(post.attachments).forEach((attachment) => {
       const source = attachmentUrl(attachment);
       if (source && (source.startsWith('/uploads/') || /^https?:\/\//i.test(source))) {
         const image = document.createElement('img');
         image.className = 'post-image';
-        image.src = source;
         image.alt = 'A bejegyzéshez csatolt kép';
         image.loading = 'lazy';
+        image.addEventListener('error', () => {
+          image.replaceWith(Object.assign(document.createElement('p'), {
+            className: 'news-meta',
+            textContent: 'A kép nem tölthető be.'
+          }));
+        }, { once: true });
+        image.src = source;
         article.appendChild(image);
       }
     });
