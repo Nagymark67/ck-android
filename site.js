@@ -639,6 +639,20 @@
         article.appendChild(image);
       }
     });
+    if (activeUser && (post.author_username === activeUser.username || canManageContent(activeUser))) {
+      article.querySelectorAll('.post-image').forEach((image, index) => {
+        const removeButton = document.createElement('button');
+        removeButton.className = 'button button-outline post-image-remove';
+        removeButton.type = 'button';
+        removeButton.textContent = 'Kép eltávolítása';
+        removeButton.addEventListener('click', async () => {
+          if (!window.confirm('Biztosan eltávolítod ezt a képet?')) return;
+          const response = await window.ckApiFetch(`/posts/${post.id}/attachments/${index}`, { method: 'DELETE' });
+          if (response.ok) loadPosts();
+        });
+        image.insertAdjacentElement('afterend', removeButton);
+      });
+    }
     if (post.poll && Array.isArray(post.poll.options)) {
       const poll = document.createElement('form');
       poll.className = 'post-poll';
@@ -716,6 +730,34 @@
   });
   document.querySelectorAll('[data-close-composer]').forEach((button) => button.addEventListener('click', () => composer?.classList.remove('open')));
   const editor = document.getElementById('composerEditor');
+  const imageInput = document.getElementById('composerImages');
+  const imagePreview = document.getElementById('composerImagePreview');
+  let selectedImages = [];
+  const renderImagePreview = () => {
+    if (!imagePreview) return;
+    imagePreview.replaceChildren();
+    selectedImages.forEach((file, index) => {
+      const item = document.createElement('div');
+      item.className = 'composer-image-item';
+      const preview = document.createElement('img');
+      preview.src = URL.createObjectURL(file);
+      preview.alt = file.name;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'button button-outline';
+      remove.textContent = 'Eltávolítás';
+      remove.addEventListener('click', () => {
+        selectedImages.splice(index, 1);
+        renderImagePreview();
+      });
+      item.append(preview, remove);
+      imagePreview.appendChild(item);
+    });
+  };
+  imageInput?.addEventListener('change', () => {
+    selectedImages = Array.from(imageInput.files || []).slice(0, 5);
+    renderImagePreview();
+  });
   document.querySelectorAll('[data-command]').forEach((button) => button.addEventListener('click', () => {
     editor?.focus();
     document.execCommand(button.dataset.command, false);
@@ -748,7 +790,7 @@
     const formData = new FormData();
     formData.append('content', content);
     formData.append('visibility', visibility);
-    Array.from(images?.files || []).slice(0, 5).forEach((file) => formData.append('attachments', file));
+    selectedImages.forEach((file) => formData.append('attachments', file));
     if (pollEnabled?.checked) {
       formData.append('poll', JSON.stringify({
         question: document.getElementById('composerPollQuestion')?.value || '',
@@ -760,6 +802,8 @@
       composer?.classList.remove('open');
       if (editor) editor.innerHTML = '';
       if (images) images.value = '';
+      selectedImages = [];
+      renderImagePreview();
       if (message) message.textContent = '';
       loadPosts();
     } else if (message) {

@@ -56,6 +56,7 @@
   <div id="composer" class="modal-backdrop" role="dialog" aria-modal="true">
     <div class="modal">
       <h2>Új hír közzététele</h2>
+      <p class="composer-help">Írd le a hírt, válassz láthatóságot, majd adj hozzá legfeljebb 5 képet.</p>
     <div class="editor-toolbar" role="toolbar" aria-label="Szövegformázás">
       <button type="button" data-command="bold" title="Félkövér"><strong>B</strong></button>
       <button type="button" data-command="italic" title="Dőlt"><em>I</em></button>
@@ -68,6 +69,7 @@
       </label>
       <select id="composerVisibility" aria-label="Láthatóság"><option value="mindenki">Mindenki</option><option value="tagok_es_tanitvanyok">Tagok és tanítványok</option><option value="csak_tagok">Csak tagok</option></select>
     </div>
+    <div id="composerImagePreview" class="composer-image-preview" aria-live="polite"></div>
     <section class="poll-builder" aria-label="Szavazás beállításai">
       <label class="poll-toggle"><input id="composerPollEnabled" type="checkbox"> Szavazás hozzáadása</label>
       <div id="pollFields" hidden>

@@ -236,6 +236,18 @@ async function uploadFile(file: { originalname: string; mimetype: string; buffer
   return `${supabaseUrl}/storage/v1/object/public/uploads/${path}`;
 }
 
+function storagePathFromUrl(value: unknown) {
+  if (typeof value !== "string") return "";
+  try {
+    const url = new URL(value);
+    const marker = "/storage/v1/object/public/uploads/";
+    const index = url.pathname.indexOf(marker);
+    return index === -1 ? "" : decodeURIComponent(url.pathname.slice(index + marker.length));
+  } catch {
+    return "";
+  }
+}
+
 app.post("/posts", (req, res, next) => {
   multipart.array("attachments", 5)(req, res, (error) => {
     if (error) {
@@ -308,6 +320,37 @@ app.delete("/posts/:id", async (req, res) => {
   const result = await db.from("posts").delete().eq("id", id);
   if (result.error) return res.status(500).json({ message: "Hiba a poszt törlésekor" });
   res.json({ success: true });
+});
+
+app.delete("/posts/:id/attachments/:attachmentIndex", async (req, res) => {
+  const username = await requireUser(req, res);
+  if (!username) return;
+  const id = parseId(req.params.id);
+  const attachmentIndex = Number.parseInt(req.params.attachmentIndex, 10);
+  if (!id || !Number.isInteger(attachmentIndex) || attachmentIndex < 0) {
+    return res.status(400).json({ message: "Érvénytelen képazonosító" });
+  }
+  const { data: post, error } = await db.from("posts").select("author_username,attachments").eq("id", id).maybeSingle();
+  if (error || !post) return res.status(404).json({ message: "A poszt nem található" });
+  if (post.author_username !== username && !await hasRole(username, ["cantus_praeses", "jegyzo"])) {
+    return res.status(403).json({ message: "Nincs jogosultsága a kép törléséhez" });
+  }
+  const attachments = Array.isArray(post.attachments) ? post.attachments : [];
+  if (attachmentIndex >= attachments.length) return res.status(404).json({ message: "A kép nem található" });
+  const [removed] = attachments.splice(attachmentIndex, 1);
+  const result = await db.from("posts").update({ attachments }).eq("id", id);
+  if (result.error) return res.status(500).json({ message: "A kép törlése nem sikerült" });
+  const removedUrl = typeof removed === "string"
+    ? removed
+    : removed && typeof removed === "object"
+      ? (removed.url || removed.image_url || removed.path || "")
+      : "";
+  const storagePath = storagePathFromUrl(removedUrl);
+  if (storagePath) {
+    const { error: storageError } = await db.storage.from("uploads").remove([storagePath]);
+    if (storageError) console.error("Post attachment storage cleanup failed", storageError);
+  }
+  res.json({ success: true, attachments });
 });
 
 app.get("/gallery", async (req, res) => {
