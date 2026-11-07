@@ -228,14 +228,30 @@ app.get("/posts", async (req, res) => {
 });
 
 async function uploadFile(file: { originalname: string; mimetype: string; buffer: Uint8Array }, username: string) {
-  const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "");
-  const path = `${username}/${crypto.randomUUID()}-${safeName || "upload"}`;
+  const safeUsername = username.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^_+|_+$/g, "") || "user";
+  const safeName = file.originalname.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${safeUsername}/${crypto.randomUUID()}-${safeName || "upload"}`;
   const { error } = await db.storage.from("uploads").upload(path, file.buffer, { contentType: file.mimetype, upsert: false });
   if (error) throw error;
   return `${supabaseUrl}/storage/v1/object/public/uploads/${path}`;
 }
 
-app.post("/posts", multipart.array("attachments", 5), async (req, res) => {
+app.post("/posts", (req, res, next) => {
+  multipart.array("attachments", 5)(req, res, (error) => {
+    if (error) {
+      if (error instanceof multer.MulterError) {
+        const message = error.code === "LIMIT_FILE_SIZE"
+          ? "A kép mérete legfeljebb 10 MB lehet."
+          : error.code === "LIMIT_UNEXPECTED_FILE"
+            ? "Legfeljebb 5 kép csatolható."
+            : "A kép feltöltése nem sikerült.";
+        return res.status(400).json({ message });
+      }
+      return next(error);
+    }
+    next();
+  });
+}, async (req, res) => {
   const username = await requireUser(req, res);
   if (!username) return;
   if (!(await hasRole(username, ["cantus_praeses", "jegyzo"]))) return res.status(403).json({ message: "Nincs jogosultsága posztolni" });
@@ -259,7 +275,10 @@ app.post("/posts", multipart.array("attachments", 5), async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error("Create post error", error);
-    res.status(500).json({ message: "Hiba a poszt létrehozásakor" });
+    res.status(500).json({
+      message: "Hiba a poszt létrehozásakor",
+      ...(Deno.env.get("NODE_ENV") !== "production" && { error: error instanceof Error ? error.message : String(error) })
+    });
   }
 });
 

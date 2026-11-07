@@ -622,7 +622,7 @@
     const date = post.created_at ? new Date(post.created_at).toLocaleString('hu-HU') : '';
     article.innerHTML = `<div class="news-meta"><strong>${post.author_username || 'Ismeretlen szerző'}</strong> · ${date}</div><div class="news-content">${post.content || ''}</div>`;
     (post.attachments || []).forEach((attachment) => {
-      if (typeof attachment === 'string' && attachment.startsWith('/uploads/')) {
+      if (typeof attachment === 'string' && (attachment.startsWith('/uploads/') || /^https?:\/\//i.test(attachment))) {
         const image = document.createElement('img');
         image.className = 'post-image';
         image.src = attachment;
