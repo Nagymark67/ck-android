@@ -851,6 +851,16 @@
 
     if (App) {
       App.addListener('backButton', ({ canGoBack }) => {
+        // 0. Close Daloskönyv fullscreen if active
+        const pdfFsWrapper = document.getElementById('canvasWrapper');
+        if (pdfFsWrapper && pdfFsWrapper.classList.contains('is-fullscreen')) {
+          const exitFsBtn = document.getElementById('exitFullscreenBtn');
+          if (exitFsBtn) {
+            exitFsBtn.click();
+            return;
+          }
+        }
+
         // 1. Close drawers or mobile navigation
         if (body.classList.contains('drawer-open') || body.classList.contains('nav-open')) {
           body.classList.remove('drawer-open', 'nav-open');

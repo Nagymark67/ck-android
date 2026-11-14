@@ -6,9 +6,10 @@
   "scripts": {
     "start": "node server.js",
     "build": "node scripts/build-app.js",
-    "cap:sync": "npm run build && npx cap sync",
-    "cap:build": "npm run build && npx cap build android",
-    "cap:open": "npx cap open android",
+    "build:apk": "node scripts/build-app.js && node_modules\\.bin\\cap.cmd sync android && android\\gradlew.bat -p android assembleDebug",
+    "cap:sync": "npm run build && node_modules\\.bin\\cap.cmd sync android",
+    "cap:build": "npm run build:apk",
+    "cap:open": "node_modules\\.bin\\cap.cmd open android",
     "hash-passwords": "node scripts/hash_passwords.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
