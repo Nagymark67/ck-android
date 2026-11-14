@@ -12,3 +12,6 @@ android/
 .idea/
 assets/
 icons/
+firebase-service-account.json
+google-services.json
+cantusokkore.apk

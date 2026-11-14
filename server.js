@@ -21,6 +21,88 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const admin = require('firebase-admin');
+
+let firebaseInitialized = false;
+try {
+  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || path.join(__dirname, 'firebase-service-account.json');
+  if (fs.existsSync(serviceAccountPath)) {
+    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+    firebaseInitialized = true;
+    console.log('Firebase Admin SDK initialized successfully for project:', serviceAccount.project_id);
+  } else {
+    console.warn('Firebase service account file not found at:', serviceAccountPath);
+  }
+} catch (fbErr) {
+  console.warn('Could not initialize Firebase Admin SDK:', fbErr.message);
+}
+
+async function sendPushNotificationToAll({ title, body, data = {} }) {
+  if (!firebaseInitialized) {
+    console.log('[PUSH SKIP] Firebase not initialized');
+    return { successCount: 0, failureCount: 0 };
+  }
+  try {
+    const [rows] = await query('SELECT DISTINCT token FROM push_tokens');
+    if (!rows || rows.length === 0) {
+      console.log('[PUSH] No registered push tokens found');
+      return { successCount: 0, failureCount: 0 };
+    }
+    const tokens = rows.map(r => r.token).filter(Boolean);
+    console.log(`[PUSH] Sending message to ${tokens.length} device(s)...`);
+
+    const message = {
+      notification: {
+        title: String(title),
+        body: String(body)
+      },
+      data: Object.fromEntries(
+        Object.entries(data).map(([k, v]) => [k, String(v)])
+      ),
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          channelId: 'cantusok_push_channel',
+          icon: 'ic_launcher'
+        }
+      },
+      tokens
+    };
+
+    const response = await admin.messaging().sendEachForMulticast(message);
+    console.log(`[PUSH RESULT] Success: ${response.successCount}, Failed: ${response.failureCount}`);
+
+    // Clean up expired or unregistered tokens
+    if (response.failureCount > 0) {
+      const tokensToRemove = [];
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          const errCode = resp.error && resp.error.code;
+          if (errCode === 'messaging/invalid-registration-token' || errCode === 'messaging/registration-token-not-registered') {
+            tokensToRemove.push(tokens[idx]);
+          }
+        }
+      });
+      if (tokensToRemove.length > 0) {
+        for (const badToken of tokensToRemove) {
+          try {
+            await query('DELETE FROM push_tokens WHERE token = ?', [badToken]);
+          } catch (delErr) {
+            console.warn('Failed removing bad push token:', delErr.message);
+          }
+        }
+      }
+    }
+    return { successCount: response.successCount, failureCount: response.failureCount };
+  } catch (err) {
+    console.error('Error in sendPushNotificationToAll:', err);
+    return { successCount: 0, failureCount: 0 };
+  }
+}
 
 
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -335,6 +417,40 @@ app.post('/online-leave', (req, res) => {
   }
 });
 
+app.post('/push/register-token', async (req, res) => {
+  const { token, platform } = req.body || {};
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ message: 'Missing token' });
+  }
+  const username = (req.session && req.session.user) || null;
+  try {
+    await query(`
+      INSERT INTO push_tokens (token, username, platform, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT (token) DO UPDATE SET
+        username = EXCLUDED.username,
+        platform = EXCLUDED.platform,
+        updated_at = CURRENT_TIMESTAMP
+    `, [token, username, platform || 'android']);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error registering push token', err);
+    res.status(500).json({ message: 'DB error registering token' });
+  }
+});
+
+app.post('/push/unregister-token', async (req, res) => {
+  const { token } = req.body || {};
+  if (!token) return res.status(400).json({ message: 'Missing token' });
+  try {
+    await query('DELETE FROM push_tokens WHERE token = ?', [token]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error unregistering push token', err);
+    res.status(500).json({ message: 'DB error' });
+  }
+});
+
 app.get('/me', (req, res) => {
     if (req.session && req.session.user) {
         
@@ -395,14 +511,97 @@ async function userHasRole(username, requiredRoles = []) {
 }
 
 
-function sanitizeContent(input) {
-  if (!input) return '';
-  return input.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
-              .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '')
-              .replace(/<(iframe|object|embed|form)[^>]*>[\s\S]*?<\/\1>/gi, '')
-              .replace(/on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-              .replace(/\s(href|src)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, '');
-}
+let inMemoryEvents = [];
+
+app.get('/events', async (req, res) => {
+  try {
+    const [rows] = await query('SELECT * FROM calendar_events ORDER BY start_date ASC');
+    const formatted = (rows || []).map((ev) => ({
+      id: ev.id,
+      title: ev.title,
+      location: ev.location,
+      date: ev.start_date,
+      endDate: ev.end_date,
+      details: ev.description,
+      link: ev.link,
+      createdBy: ev.created_by
+    }));
+    return res.json({ events: formatted });
+  } catch (err) {
+    // If table doesn't exist, return inMemoryEvents
+    return res.json({ events: inMemoryEvents });
+  }
+});
+
+app.post('/events', async (req, res) => {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({ message: 'Bejelentkezés szükséges' });
+  }
+  const username = req.session.user.username;
+  const canManage = (await userHasRole(username, ['cantus_praeses', 'jegyzo'])) || req.session.user.isAllTimeAdmin;
+  if (!canManage) {
+    return res.status(403).json({ message: 'Nincs jogosultsága eseményt létrehozni' });
+  }
+
+  const { title, location, date, startDate, endDate, details, description, link, id } = req.body || {};
+  const dateStr = date || startDate;
+  if (!title || !location || !dateStr) {
+    return res.status(400).json({ message: 'A cím, helyszín és kezdési idő megadása kötelező.' });
+  }
+
+  const start = new Date(dateStr);
+  const end = endDate ? new Date(endDate) : new Date(start.getTime() + 3 * 60 * 60 * 1000);
+  const eventId = id || `event-${Date.now()}`;
+  const record = {
+    id: eventId,
+    title: String(title).slice(0, 255),
+    location: String(location).slice(0, 255),
+    date: start.toISOString(),
+    endDate: end.toISOString(),
+    details: details || description ? String(details || description).slice(0, 3000) : null,
+    link: link ? String(link).slice(0, 500) : null,
+    createdBy: username
+  };
+
+  try {
+    await query(
+      'INSERT INTO calendar_events (id, title, location, start_date, end_date, description, link, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [record.id, record.title, record.location, record.date, record.endDate, record.details, record.link, record.createdBy]
+    );
+  } catch (dbErr) {
+    inMemoryEvents.push(record);
+  }
+
+  try {
+    const timeStr = start.toLocaleString('hu-HU', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    sendFcmPushToAll(
+      `Új esemény: ${record.title}`,
+      `${timeStr} · ${record.location}`,
+      { type: 'new_event', eventId: record.id }
+    ).catch(() => {});
+  } catch (pushErr) {}
+
+  res.json({ success: true, event: record });
+});
+
+app.delete('/events/:id', async (req, res) => {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({ message: 'Bejelentkezés szükséges' });
+  }
+  const username = req.session.user.username;
+  const canManage = (await userHasRole(username, ['cantus_praeses', 'jegyzo'])) || req.session.user.isAllTimeAdmin;
+  if (!canManage) {
+    return res.status(403).json({ message: 'Nincs jogosultsága eseményt törölni' });
+  }
+
+  const { id } = req.params;
+  try {
+    await query('DELETE FROM calendar_events WHERE id = ?', [id]);
+  } catch (dbErr) {
+    inMemoryEvents = inMemoryEvents.filter((ev) => ev.id !== id);
+  }
+  res.json({ success: true });
+});
 
 
 app.get('/posts', async (req, res) => {
@@ -465,6 +664,19 @@ app.post('/posts', upload.array('attachments', 5), async (req, res) => {
       }
     }
     await query('INSERT INTO posts (author_username, content, visibility, attachments, poll) VALUES (?, ?, ?, ?, ?)', [username, safe, visibility, JSON.stringify(filePaths), poll ? JSON.stringify(poll) : null]);
+
+    // Broadcast push notification for new post
+    try {
+      const snippet = safe ? safe.replace(/<[^>]+>/g, '').trim().slice(0, 100) : 'Új bejegyzés jelent meg!';
+      sendPushNotificationToAll({
+        title: `Új bejegyzés: ${username}`,
+        body: snippet || 'Új bejegyzés jelent meg a Cantusok Köre oldalán.',
+        data: { type: 'new_post' }
+      }).catch(err => console.warn('Post push send failed:', err));
+    } catch (pushErr) {
+      console.warn('Post push notification failed:', pushErr);
+    }
+
     res.json({ success: true });
   } catch (err) {
     console.error('Error creating post', err);
@@ -655,6 +867,20 @@ async function ensureSchema() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS push_tokens (
+        token TEXT PRIMARY KEY,
+        username VARCHAR(100),
+        platform VARCHAR(50) DEFAULT 'android',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS sent_event_reminders (
+        reminder_key TEXT PRIMARY KEY,
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
     await query('CREATE INDEX IF NOT EXISTS posts_author_username_idx ON posts (author_username)');
   } catch (err) {
     console.error('Error ensuring schema', err);
@@ -716,6 +942,95 @@ async function ensureRolesAndAdminUser() {
         console.log('Could not read server.address()', e && e.message);
       }
     });
+
+    // Background push scheduler for calendar events
+    // Checks every minute for upcoming events:
+    // 1) Previous day at 20:00 (within a 5-minute window)
+    // 2) 1 hour before event (within a 5-minute window)
+    function getHardcodedAndRecurringEvents() {
+      const items = [{
+        id: 'szureti-mulatsag-2026',
+        date: new Date(2026, 10, 14, 8, 30),
+        title: 'Cantusok Köre Szüreti Mulatság',
+        location: 'Liget Söröző'
+      }];
+      // Add recurring Monday Daltanítás
+      const now = new Date();
+      let d = new Date(now);
+      d.setHours(19, 0, 0, 0);
+      const daysUntilMonday = (8 - d.getDay()) % 7;
+      d.setDate(d.getDate() + daysUntilMonday);
+      if (d <= now) d.setDate(d.getDate() + 7);
+      for (let i = 0; i < 52; i++) {
+        items.push({
+          id: `daltanitas-${d.toISOString()}`,
+          date: new Date(d),
+          title: 'Daltanítás',
+          location: 'Liget Söröző'
+        });
+        d = new Date(d);
+        d.setDate(d.getDate() + 7);
+        if (d.getMonth() === 11 && d.getDate() === 25) d.setDate(d.getDate() + 7);
+      }
+      return items;
+    }
+
+    async function checkAndSendCalendarPushReminders() {
+      if (!firebaseInitialized) return;
+      try {
+        const events = getHardcodedAndRecurringEvents();
+        const now = Date.now();
+
+        for (const ev of events) {
+          const evTime = ev.date.getTime();
+          if (evTime < now) continue;
+
+          const timeFormatted = ev.date.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
+          const locationText = ev.location ? ` Helyszín: ${ev.location}` : '';
+
+          // 1. One hour before: trigger window between 55 and 65 mins before event
+          const oneHourBefore = evTime - 60 * 60 * 1000;
+          if (now >= oneHourBefore && now <= oneHourBefore + 5 * 60 * 1000) {
+            const key = `1h_${ev.id}_${evTime}`;
+            const [existing] = await query('SELECT 1 FROM sent_event_reminders WHERE reminder_key = ? LIMIT 1', [key]);
+            if (!existing || existing.length === 0) {
+              await query('INSERT INTO sent_event_reminders (reminder_key) VALUES (?) ON CONFLICT DO NOTHING', [key]);
+              console.log(`[EVENT PUSH] Sending 1-hour-before reminder for ${ev.title}`);
+              sendPushNotificationToAll({
+                title: `Hamarosan kezdődik: ${ev.title}`,
+                body: `1 óra múlva (${timeFormatted}) kezdődik!${locationText}`,
+                data: { type: 'event_reminder', eventId: ev.id }
+              }).catch(e => console.warn('1h event push error:', e));
+            }
+          }
+
+          // 2. Previous day at 20:00: trigger window between 20:00 and 20:05 on the previous day
+          const prevDay20 = new Date(evTime);
+          prevDay20.setDate(prevDay20.getDate() - 1);
+          prevDay20.setHours(20, 0, 0, 0);
+          const prevDayTime = prevDay20.getTime();
+          if (now >= prevDayTime && now <= prevDayTime + 5 * 60 * 1000) {
+            const key = `prev20_${ev.id}_${evTime}`;
+            const [existing] = await query('SELECT 1 FROM sent_event_reminders WHERE reminder_key = ? LIMIT 1', [key]);
+            if (!existing || existing.length === 0) {
+              await query('INSERT INTO sent_event_reminders (reminder_key) VALUES (?) ON CONFLICT DO NOTHING', [key]);
+              console.log(`[EVENT PUSH] Sending previous-day 20:00 reminder for ${ev.title}`);
+              sendPushNotificationToAll({
+                title: `Holnapi esemény: ${ev.title}`,
+                body: `Holnap ${timeFormatted}-kor kezdődik.${locationText}`,
+                data: { type: 'event_reminder', eventId: ev.id }
+              }).catch(e => console.warn('prev-day event push error:', e));
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error checking calendar push reminders:', err);
+      }
+    }
+
+    setInterval(checkAndSendCalendarPushReminders, 60 * 1000);
+    // Run an initial check after 5 seconds
+    setTimeout(checkAndSendCalendarPushReminders, 5000);
   } catch (err) {
     console.error('Failed to start server due to schema/role error', err);
     process.exit(1);

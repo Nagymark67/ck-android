@@ -17,6 +17,14 @@
     "StatusBar": {
       "style": "DARK",
       "backgroundColor": "#4b0000"
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_launcher",
+      "iconColor": "#4b0000",
+      "sound": "default"
     }
   }
 }

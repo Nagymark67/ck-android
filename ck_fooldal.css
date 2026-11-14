@@ -448,3 +448,18 @@ footer {
     bottom: calc(12px + env(safe-area-inset-bottom, 0));
   }
 }
+
+/* Event Notification Toggle Button */
+.event-notify-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.event-notify-btn.active {
+  background: var(--wine);
+  color: #fff;
+  border-color: var(--wine);
+}
+

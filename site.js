@@ -87,6 +87,189 @@
     while (date.getMonth() === 11 && date.getDate() === 25) date.setDate(date.getDate() + 7);
     return date;
   };
+
+  function getAllCalendarEvents() {
+    const items = [{
+      id: 'szureti-mulatsag-2026',
+      date: new Date(2026, 10, 14, 8, 30),
+      title: 'Cantusok Köre Szüreti Mulatság',
+      location: 'Liget Söröző',
+      details: 'Immáron XIX. alkalommal kerül megrendezésre a Cantusok Köre Szüreti Mulatsága, melynek pontos időpontja november 14. napja lesz.\n\nA rendezvény hivatalos itala a szürethez híven, a bor lesz.\n\nBelépő: 6500 Ft, elsőéves BSC hallgatóknak 5000 Ft.\n\nProgramterv:\n09:00 Reggeli\n10:00–11:30 Tanítványok által játékos feladatok\n12:00 Ebéd vaddisznóhúsos pincepörkölttel a la Cantusok Köre\n13:00 (opcionális) Cantus verseny és söpröng\n13:00–17:30 Ismerkedés az ifjúsággal\n18:00 Nedvesest kezdete\n\nNovember 15.: Környes búcsú, utolsó nótázó.\n\nJelentkezés: forms.gle/bHwJE93sWEyFUCUL6',
+      link: 'https://forms.gle/bHwJE93sWEyFUCUL6'
+    }];
+    let deletedEventIds = [];
+    try {
+      deletedEventIds = JSON.parse(localStorage.getItem('cantusok-deleted-events') || '[]');
+      if (!Array.isArray(deletedEventIds)) deletedEventIds = [];
+      const remoteEvents = JSON.parse(localStorage.getItem('cantusok-remote-events') || '[]');
+      if (Array.isArray(remoteEvents)) remoteEvents.forEach((ev) => {
+        const id = ev.id || `${ev.date}|${ev.title}`;
+        if (!items.some((item) => item.id === id)) {
+          items.push({ ...ev, id, date: new Date(ev.date), endDate: ev.endDate ? new Date(ev.endDate) : new Date(new Date(ev.date).getTime() + 3 * 60 * 60 * 1000) });
+        }
+      });
+      const savedEvents = JSON.parse(localStorage.getItem('cantusok-events') || '[]');
+      if (Array.isArray(savedEvents)) savedEvents.forEach((ev) => {
+        const id = ev.id || `${ev.date}|${ev.title}`;
+        if (!items.some((item) => item.id === id)) {
+          items.push({ ...ev, id, date: new Date(ev.date), endDate: ev.endDate ? new Date(ev.endDate) : new Date(new Date(ev.date).getTime() + 3 * 60 * 60 * 1000) });
+        }
+      });
+    } catch (err) {
+      console.warn('Could not load saved events', err);
+    }
+    let d = nextSong();
+    for (let i = 0; i < 52; i += 1) {
+      items.push({ id: `daltanitas-${d.toISOString()}`, date: new Date(d), title: songName, location: songLocation });
+      d = new Date(d);
+      d.setDate(d.getDate() + 7);
+      if (d.getMonth() === 11 && d.getDate() === 25) d.setDate(d.getDate() + 7);
+    }
+    return items.filter((ev) => !deletedEventIds.includes(ev.id));
+  }
+
+  async function fetchRemoteEvents() {
+    try {
+      if (!window.ckApiFetch) return;
+      const res = await window.ckApiFetch('/events');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.events)) {
+          localStorage.setItem('cantusok-remote-events', JSON.stringify(data.events));
+          if (typeof rerenderEvents === 'function') {
+            rerenderEvents();
+          }
+          await syncEventNotifications();
+        }
+      }
+    } catch (err) {
+      console.warn('Could not fetch remote events', err);
+    }
+  }
+
+  async function syncEventNotifications() {
+    const LocalNotifications = window.Capacitor?.Plugins?.LocalNotifications;
+    if (!LocalNotifications) return;
+
+    const isEnabled = localStorage.getItem('ck_push_notifications_enabled') !== 'false';
+    if (!isEnabled) {
+      try {
+        const pending = await LocalNotifications.getPending();
+        if (pending && pending.notifications && pending.notifications.length > 0) {
+          await LocalNotifications.cancel({ notifications: pending.notifications });
+        }
+      } catch (e) {
+        console.warn('Error cancelling local notifications', e);
+      }
+      return;
+    }
+
+    try {
+      let perm = await LocalNotifications.checkPermissions();
+      if (perm.display !== 'granted') {
+        perm = await LocalNotifications.requestPermissions();
+      }
+      if (perm.display !== 'granted') return;
+    } catch (e) {
+      console.warn('Local notifications permission check failed', e);
+      return;
+    }
+
+    try {
+      await LocalNotifications.createChannel({
+        id: 'cantusok_events_channel',
+        name: 'Esemény emlékeztetők',
+        description: 'Emlékeztetők a Cantusok Köre eseményeiről és daltanításokról',
+        importance: 4,
+        visibility: 1,
+        sound: 'default',
+        vibration: true
+      });
+    } catch (e) {
+      console.warn('Error creating notification channel', e);
+    }
+
+    try {
+      const pending = await LocalNotifications.getPending();
+      if (pending && pending.notifications && pending.notifications.length > 0) {
+        await LocalNotifications.cancel({ notifications: pending.notifications });
+      }
+    } catch (e) {
+      console.warn('Error clearing pending notifications', e);
+    }
+
+    const allEvents = getAllCalendarEvents();
+    const now = new Date();
+    const notificationsToSchedule = [];
+
+    function hashId(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+      }
+      return Math.abs(hash) % 2147483647;
+    }
+
+    for (const ev of allEvents) {
+      const eventDate = new Date(ev.date);
+      if (Number.isNaN(eventDate.getTime())) continue;
+
+      const timeStr = eventDate.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
+
+      // 1) Exactly 1 hour before the event
+      const oneHourBefore = new Date(eventDate.getTime() - 60 * 60 * 1000);
+      if (oneHourBefore > now) {
+        notificationsToSchedule.push({
+          id: hashId(`${ev.id}_1h_${eventDate.getTime()}`),
+          title: `Hamarosan: ${ev.title}`,
+          body: `1 óra múlva (${timeStr}) kezdődik: ${ev.title} (${ev.location || 'Liget Söröző'})`,
+          channelId: 'cantusok_events_channel',
+          schedule: { at: oneHourBefore, allowWhileIdle: true },
+          sound: 'default',
+          extra: { type: 'event_reminder', eventId: ev.id }
+        });
+      } else if (eventDate > now && (eventDate.getTime() - now.getTime()) <= 60 * 60 * 1000) {
+        // Event starts in less than 1 hour (created on short notice or for immediate testing)
+        const soon = new Date(Date.now() + 3000);
+        notificationsToSchedule.push({
+          id: hashId(`${ev.id}_soon_${eventDate.getTime()}`),
+          title: `Hamarosan: ${ev.title}`,
+          body: `Kevesebb mint 1 óra múlva (${timeStr}) kezdődik: ${ev.title} (${ev.location || 'Liget Söröző'})`,
+          channelId: 'cantusok_events_channel',
+          schedule: { at: soon, allowWhileIdle: true },
+          sound: 'default',
+          extra: { type: 'event_reminder', eventId: ev.id }
+        });
+      }
+
+      // 2) Previous day at 20:00 (8:00 PM)
+      const prevDayAt20 = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate() - 1, 20, 0, 0, 0);
+      if (prevDayAt20 > now && prevDayAt20 < eventDate) {
+        notificationsToSchedule.push({
+          id: hashId(`${ev.id}_eve_${eventDate.getTime()}`),
+          title: `Holnap: ${ev.title}`,
+          body: `Holnap ${timeStr}-kor: ${ev.title} (${ev.location || 'Liget Söröző'})`,
+          channelId: 'cantusok_events_channel',
+          schedule: { at: prevDayAt20, allowWhileIdle: true },
+          sound: 'default',
+          extra: { type: 'event_reminder', eventId: ev.id }
+        });
+      }
+    }
+
+    notificationsToSchedule.sort((a, b) => a.schedule.at.getTime() - b.schedule.at.getTime());
+    const batch = notificationsToSchedule.slice(0, 50);
+    if (batch.length > 0) {
+      try {
+        await LocalNotifications.schedule({ notifications: batch });
+        console.log(`[Event Reminders] Successfully scheduled ${batch.length} event notifications.`);
+      } catch (err) {
+        console.error('[Event Reminders] Failed to schedule notifications:', err);
+      }
+    }
+  }
+
   const googleCalendarUrl = (date, event = {}) => {
     const pad = (value) => String(value).padStart(2, '0');
     const title = event.title || songName;
@@ -105,36 +288,17 @@
     if (addNextSong) addNextSong.href = googleCalendarUrl(date);
   }
   if (eventList) {
-    const events = [{
-      id: 'szureti-mulatsag-2026',
-      date: new Date(2026, 10, 14, 8, 30),
-      title: 'Cantusok Köre Szüreti Mulatság',
-      location: 'Liget Söröző',
-      details: 'Immáron XIX. alkalommal kerül megrendezésre a Cantusok Köre Szüreti Mulatsága, melynek pontos időpontja november 14. napja lesz.\n\nA rendezvény hivatalos itala a szürethez híven, a bor lesz.\n\nBelépő: 6500 Ft, elsőéves BSC hallgatóknak 5000 Ft.\n\nProgramterv:\n09:00 Reggeli\n10:00–11:30 Tanítványok által játékos feladatok\n12:00 Ebéd vaddisznóhúsos pincepörkölttel a la Cantusok Köre\n13:00 (opcionális) Cantus verseny és söpröng\n13:00–17:30 Ismerkedés az ifjúsággal\n18:00 Nedvesest kezdete\n\nNovember 15.: Környes búcsú, utolsó nótázó.\n\nJelentkezés: forms.gle/bHwJE93sWEyFUCUL6',
-      link: 'https://forms.gle/bHwJE93sWEyFUCUL6'
-    }];
+    let events = getAllCalendarEvents();
+    fetchRemoteEvents();
+
     let deletedEventIds = [];
     try {
       deletedEventIds = JSON.parse(localStorage.getItem('cantusok-deleted-events') || '[]');
       if (!Array.isArray(deletedEventIds)) deletedEventIds = [];
-      const savedEvents = JSON.parse(localStorage.getItem('cantusok-events') || '[]');
-      if (Array.isArray(savedEvents)) savedEvents.forEach((event) => {
-        const id = event.id || `${event.date}|${event.title}`;
-        events.push({ ...event, id, date: new Date(event.date), endDate: event.endDate ? new Date(event.endDate) : new Date(new Date(event.date).getTime() + 3 * 60 * 60 * 1000) });
-      });
     } catch (error) {
-      console.warn('Could not load saved events', error);
+      console.warn('Could not load deleted events', error);
     }
-    let date = nextSong();
-    for (let i = 0; i < 52; i += 1) {
-      events.push({ id: `daltanitas-${date.toISOString()}`, date, title: songName, location: songLocation });
-      date = new Date(date);
-      date.setDate(date.getDate() + 7);
-      if (date.getMonth() === 11 && date.getDate() === 25) date.setDate(date.getDate() + 7);
-    }
-    for (let index = events.length - 1; index >= 0; index -= 1) {
-      if (deletedEventIds.includes(events[index].id)) events.splice(index, 1);
-    }
+
     const eventOccursOnDate = (event, date) => {
       const start = new Date(event.date);
       const end = new Date(event.endDate || event.date);
@@ -180,16 +344,23 @@
           remove.className = 'button button-outline event-delete';
           remove.setAttribute('aria-label', `${event.title} törlése`);
           remove.textContent = '🗑';
-          remove.addEventListener('click', () => {
+          remove.addEventListener('click', async () => {
             if (!window.confirm(`Biztosan törlöd ezt az eseményt?\n\n${event.title}`)) return;
-            const eventIndex = events.findIndex((item) => item.id === event.id);
-            if (eventIndex === -1) return;
-            events.splice(eventIndex, 1);
             deletedEventIds.push(event.id);
             localStorage.setItem('cantusok-deleted-events', JSON.stringify(deletedEventIds));
             const savedEvents = JSON.parse(localStorage.getItem('cantusok-events') || '[]');
             localStorage.setItem('cantusok-events', JSON.stringify(savedEvents.filter((item) => (item.id || `${item.date}|${item.title}`) !== event.id)));
-            rerenderEvents?.();
+            const remoteEvents = JSON.parse(localStorage.getItem('cantusok-remote-events') || '[]');
+            localStorage.setItem('cantusok-remote-events', JSON.stringify(remoteEvents.filter((item) => (item.id || `${item.date}|${item.title}`) !== event.id)));
+            try {
+              if (window.ckApiFetch) {
+                await window.ckApiFetch(`/events/${encodeURIComponent(event.id)}`, { method: 'DELETE' });
+              }
+            } catch (err) {
+              console.warn('Failed to delete event on server', err);
+            }
+            renderEvents();
+            syncEventNotifications();
           });
           actions.appendChild(remove);
         }
@@ -198,7 +369,8 @@
       });
       eventList.hidden = selectedEvents.length === 0;
     };
-    const renderEvents = () => {
+    const renderEvents = (targetDate) => {
+      events = getAllCalendarEvents();
       const query = (search?.value || '').trim().toLocaleLowerCase('hu-HU');
       const visible = events.filter((event) => `${event.title} ${event.location} ${formatDate(event.date)}`.toLocaleLowerCase('hu-HU').includes(query));
       const yearPicker = document.getElementById('eventYear');
@@ -206,27 +378,27 @@
       const previousMonth = document.getElementById('previousMonth');
       const nextMonthButton = document.getElementById('nextMonth');
       const noEvents = document.getElementById('noEvents');
-      const minimumYear = 2026;
-      const minimumMonth = 9;
-      const currentYear = Math.max(new Date().getFullYear(), minimumYear);
-      const years = [...new Set([minimumYear, currentYear, currentYear + 1, currentYear + 2, ...events.map((event) => event.date.getFullYear()).filter((year) => year >= minimumYear)])].sort((a, b) => a - b);
+      const today = new Date();
+      const minimumYear = Math.min(2026, today.getFullYear());
+      const currentYear = today.getFullYear();
+      const years = [...new Set([minimumYear, currentYear, currentYear + 1, currentYear + 2, ...events.map((event) => event.date.getFullYear())])].sort((a, b) => a - b);
       if (yearPicker && !yearPicker.options.length) {
         years.forEach((year) => yearPicker.add(new Option(String(year), String(year))));
-        yearPicker.value = String(currentYear);
+        yearPicker.value = String(targetDate ? targetDate.getFullYear() : currentYear);
       }
-      let month = Number(calendar?.dataset.month || (currentYear === minimumYear ? Math.max(minimumMonth, new Date().getMonth()) : new Date().getMonth()));
+      let month = targetDate ? targetDate.getMonth() : Number(calendar?.dataset.month ?? today.getMonth());
       const setYear = (year) => {
         if (!yearPicker) return;
-        year = Math.max(minimumYear, year);
         if (!Array.from(yearPicker.options).some((option) => option.value === String(year))) yearPicker.add(new Option(String(year), String(year)));
         yearPicker.value = String(year);
       };
+      if (targetDate) setYear(targetDate.getFullYear());
+
       const renderCalendar = () => {
-        const year = Math.max(minimumYear, Number(yearPicker?.value || currentYear));
-        if (year === minimumYear && month < minimumMonth) month = minimumMonth;
+        const year = Number(yearPicker?.value || currentYear);
         if (calendar) calendar.dataset.month = String(month);
         if (calendarTitle) calendarTitle.textContent = new Date(year, month, 1).toLocaleString('hu-HU', { month: 'long', year: 'numeric' });
-        if (previousMonth) previousMonth.disabled = year === minimumYear && month === minimumMonth;
+        if (previousMonth) previousMonth.disabled = false;
         if (!calendar) return;
         calendar.replaceChildren();
         ['H', 'K', 'Sze', 'Cs', 'P', 'Szo', 'V'].forEach((day) => {
@@ -237,8 +409,9 @@
         const firstDay = new Date(year, month, 1);
         const offset = (firstDay.getDay() + 6) % 7;
         const daysInMonth = new Date(year, month + 1, 0).getDate();
-        const today = new Date();
-        let selectedDate = new Date(year, month, Math.min(today.getDate(), daysInMonth));
+        let selectedDate = targetDate && targetDate.getFullYear() === year && targetDate.getMonth() === month
+          ? targetDate
+          : new Date(year, month, Math.min(today.getDate(), daysInMonth));
         for (let index = 0; index < offset + daysInMonth; index += 1) {
           if (index < offset) { calendar.appendChild(document.createElement('span')).className = 'calendar-empty'; continue; }
           const day = index - offset + 1;
@@ -269,8 +442,8 @@
         renderEventDetails(visible, selectedDate);
         if (noEvents) noEvents.hidden = monthEvents.length > 0;
       };
-      yearPicker?.addEventListener('change', () => { month = Number(yearPicker.value) === minimumYear ? minimumMonth : 0; renderCalendar(); });
-      previousMonth?.addEventListener('click', () => { if (yearPicker.value === String(minimumYear) && month === minimumMonth) return; if (month === 0) { setYear(Number(yearPicker.value) - 1); month = 11; } else month -= 1; renderCalendar(); });
+      yearPicker?.addEventListener('change', () => { month = 0; renderCalendar(); });
+      previousMonth?.addEventListener('click', () => { if (month === 0) { setYear(Number(yearPicker.value) - 1); month = 11; } else month -= 1; renderCalendar(); });
       nextMonthButton?.addEventListener('click', () => { if (month === 11) { setYear(Number(yearPicker.value) + 1); month = 0; } else month += 1; renderCalendar(); });
       renderCalendar();
       if (noEvents) noEvents.hidden = visible.length > 0;
@@ -293,9 +466,19 @@
       if (endTime) endTime.value = '22:00';
       if (eventModal) eventModal.hidden = false;
     });
+    const startDateInput = document.getElementById('eventStartDate');
+    const endDateInput = document.getElementById('eventEndDate');
+    startDateInput?.addEventListener('change', () => {
+      if (endDateInput) {
+        endDateInput.min = startDateInput.value;
+        if (!endDateInput.value || endDateInput.value < startDateInput.value) {
+          endDateInput.value = startDateInput.value;
+        }
+      }
+    });
     document.getElementById('closeEventModal')?.addEventListener('click', closeEventModal);
     document.getElementById('cancelEvent')?.addEventListener('click', closeEventModal);
-    eventForm?.addEventListener('submit', (event) => {
+    eventForm?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const form = new FormData(eventForm);
       const startDate = String(form.get('startDate') || '');
@@ -305,7 +488,7 @@
       const start = new Date(`${startDate}T${startTime}`);
       const finish = new Date(`${endDate}T${endTime}`);
       const created = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        id: `custom-event-${Date.now()}`,
         title: String(form.get('title') || '').trim(),
         location: String(form.get('location') || '').trim(),
         date: start.toISOString(),
@@ -328,11 +511,91 @@
       const savedEvents = JSON.parse(localStorage.getItem('cantusok-events') || '[]');
       savedEvents.push(created);
       localStorage.setItem('cantusok-events', JSON.stringify(savedEvents));
-      events.push({ ...created, date: start, endDate: finish });
+
+      try {
+        if (window.ckApiFetch) {
+          const res = await window.ckApiFetch('/events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(created)
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.event?.id) created.id = data.event.id;
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to post event to server:', err);
+      }
+
       eventForm.reset();
       closeEventModal();
-      renderEvents();
+      selectedCalendarDate = start;
+      renderEvents(start);
+      syncEventNotifications();
     });
+
+    const eventNotifyToggle = document.getElementById('eventNotifyToggle');
+    if (eventNotifyToggle) {
+      const PushNotifications = window.Capacitor?.Plugins?.PushNotifications;
+      const LocalNotifications = window.Capacitor?.Plugins?.LocalNotifications;
+      if (PushNotifications || LocalNotifications) {
+        eventNotifyToggle.style.display = 'inline-flex';
+        const updateNotifyButton = () => {
+          const isEnabled = localStorage.getItem('ck_push_notifications_enabled') !== 'false';
+          eventNotifyToggle.classList.toggle('active', isEnabled);
+          eventNotifyToggle.textContent = isEnabled ? '🔔 Push értesítések: Be' : '🔕 Push értesítések: Ki';
+        };
+        updateNotifyButton();
+
+        eventNotifyToggle.addEventListener('click', async () => {
+          const currentlyEnabled = localStorage.getItem('ck_push_notifications_enabled') !== 'false';
+          if (!currentlyEnabled) {
+            let granted = false;
+            if (PushNotifications) {
+              let perm = await PushNotifications.checkPermissions();
+              if (perm.receive !== 'granted') {
+                perm = await PushNotifications.requestPermissions();
+              }
+              if (perm.receive === 'granted') {
+                granted = true;
+                await PushNotifications.register();
+              }
+            }
+            if (LocalNotifications) {
+              let lPerm = await LocalNotifications.checkPermissions();
+              if (lPerm.display !== 'granted') {
+                lPerm = await LocalNotifications.requestPermissions();
+              }
+              if (lPerm.display === 'granted') granted = true;
+            }
+            if (granted) {
+              localStorage.setItem('ck_push_notifications_enabled', 'true');
+              await syncEventNotifications();
+              updateNotifyButton();
+              alert('Értesítések bekapcsolva! Értesítést kapsz új poszt közzétételekor és az eseményekről is (előző este 20:00 és 1 órával előtte).');
+            } else {
+              alert('Az értesítések fogadásához engedélyezned kell azt a rendszerbeállításokban.');
+            }
+          } else {
+            localStorage.setItem('ck_push_notifications_enabled', 'false');
+            const token = localStorage.getItem('ck_push_token');
+            if (token) {
+              try {
+                await window.ckApiFetch('/push/unregister-token', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ token })
+                });
+              } catch (e) {}
+            }
+            await syncEventNotifications();
+            updateNotifyButton();
+            alert('Értesítések kikapcsolva.');
+          }
+        });
+      }
+    }
   }
   const menuToggle = document.querySelector('.menu-toggle');
   const accountToggle = document.querySelector('.account-toggle');
@@ -830,7 +1093,93 @@
 
   // Native Capacitor App Integration
   if (window.Capacitor && window.Capacitor.Plugins) {
-    const { App, StatusBar, SplashScreen } = window.Capacitor.Plugins;
+    const { App, StatusBar, SplashScreen, PushNotifications, LocalNotifications } = window.Capacitor.Plugins;
+
+    // Notifications Initialization (Push + Local Event Reminders)
+    async function initNotifications() {
+      if (PushNotifications) {
+        try {
+          // Check or request notification permissions
+          let perm = await PushNotifications.checkPermissions();
+          if (perm.receive === 'prompt' || perm.receive === 'prompt-with-rationale') {
+            perm = await PushNotifications.requestPermissions();
+          }
+
+          if (perm.receive === 'granted') {
+            await PushNotifications.register();
+          }
+
+          // Listen for push registration token
+          PushNotifications.addListener('registration', async (token) => {
+            console.log('Push notification token received:', token.value);
+            localStorage.setItem('ck_push_token', token.value);
+            try {
+              await window.ckApiFetch('/push/register-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: token.value, platform: 'android' })
+              });
+            } catch (err) {
+              console.warn('Could not register push token on server:', err);
+            }
+          });
+
+          // Handle registration error
+          PushNotifications.addListener('registrationError', (err) => {
+            console.error('Push notification registration error:', err);
+          });
+
+          // Handle incoming push notification while app is in foreground
+          PushNotifications.addListener('pushNotificationReceived', (notification) => {
+            console.log('Push notification received in foreground:', notification);
+            if (notification.data && notification.data.type === 'new_post') {
+              if (typeof loadPosts === 'function') loadPosts();
+            } else if (notification.data && (notification.data.type === 'new_event' || notification.data.type === 'event_reminder')) {
+              fetchRemoteEvents();
+            }
+          });
+
+          // Handle action when user taps on push notification banner
+          PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+            console.log('Push notification action performed:', action);
+            const data = action.notification && action.notification.data;
+            if (data && data.type === 'new_post') {
+              const currentPath = window.location.pathname.replace(/^\//, '');
+              if (currentPath !== 'index.html' && currentPath !== '') {
+                window.location.href = 'index.html';
+              }
+            } else if (data && (data.type === 'new_event' || data.type === 'event_reminder')) {
+              fetchRemoteEvents();
+              const currentPath = window.location.pathname.replace(/^\//, '');
+              if (currentPath !== 'events.html') {
+                window.location.href = 'events.html';
+              }
+            }
+          });
+        } catch (pushErr) {
+          console.warn('PushNotifications init failed:', pushErr);
+        }
+      }
+
+      if (LocalNotifications) {
+        try {
+          LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+            console.log('Local notification action performed:', action);
+            const currentPath = window.location.pathname.replace(/^\//, '');
+            if (currentPath !== 'events.html') {
+              window.location.href = 'events.html';
+            }
+          });
+        } catch (locErr) {
+          console.warn('LocalNotifications listener failed:', locErr);
+        }
+      }
+
+      await fetchRemoteEvents();
+      await syncEventNotifications();
+    }
+
+    initNotifications();
 
     if (StatusBar) {
       try {
@@ -898,6 +1247,10 @@
       let backgroundLogoutTimer = null;
 
       App.addListener('appStateChange', async ({ isActive }) => {
+        if (isActive) {
+          fetchRemoteEvents();
+          syncEventNotifications();
+        }
         const user = await checkUser();
         if (user) {
           if (!isActive) {
