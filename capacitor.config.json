@@ -3,7 +3,7 @@
   "appName": "Cantusok Köre",
   "webDir": "www",
   "server": {
-    "hostname": "nagymark67.github.io",
+    "hostname": "cantusokkore.hu",
     "androidScheme": "https"
   },
   "plugins": {

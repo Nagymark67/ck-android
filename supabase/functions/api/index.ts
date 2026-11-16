@@ -36,11 +36,26 @@ const smtpTransport = smtpHost && smtpUser && smtpPass
   })
   : null;
 const cookieName = "ck_session";
-const allowedOrigins = (Deno.env.get("CORS_ORIGINS") || "*").split(",").map((origin) => origin.trim()).filter(Boolean);
+const configuredOrigins = (Deno.env.get("CORS_ORIGINS") || "*").split(",").map((origin) => origin.trim()).filter(Boolean);
+
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  if (configuredOrigins.includes("*") || configuredOrigins.includes(origin)) return true;
+  try {
+    const parsed = new URL(origin);
+    const host = parsed.hostname.toLowerCase();
+    if (host === "cantusokkore.hu" || host.endsWith(".cantusokkore.hu")) return true;
+    if (host === "nagymark67.github.io") return true;
+    if (host === "localhost" || host === "127.0.0.1") return true;
+  } catch {
+    // ignore invalid URLs
+  }
+  return false;
+}
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && (allowedOrigins.includes("*") || allowedOrigins.includes(origin))) {
+  if (origin && isAllowedOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Access-Control-Allow-Credentials", "true");
